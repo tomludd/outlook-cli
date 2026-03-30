@@ -5,16 +5,23 @@ namespace OutlookMcp.IntegrationTests;
 public class ContactTests : IClassFixture<OutlookFixture>
 {
     private readonly OutlookContactService _svc;
+    private readonly ITestOutputHelper _output;
 
-    public ContactTests(OutlookFixture fixture)
+    public ContactTests(OutlookFixture fixture, ITestOutputHelper output)
     {
         _svc = fixture.ContactService;
+        _output = output;
     }
 
     [Fact]
     public void ListContacts_ReturnsListWithoutError()
     {
         var contacts = _svc.ListContacts(20);
+
+        _output.WriteLine($"Contacts returned: {contacts.Count}");
+        foreach (var c in contacts.Take(10))
+            _output.WriteLine($"  {c.GetValueOrDefault("fullName"),-30}  {c.GetValueOrDefault("email")}  [{c.GetValueOrDefault("account")}]");
+        if (contacts.Count > 10) _output.WriteLine($"  ... and {contacts.Count - 10} more");
 
         Assert.NotNull(contacts);
     }

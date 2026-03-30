@@ -10,13 +10,13 @@ public class EmailTools
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    [McpServerTool(Name = "list_emails"), Description("List recent emails from a mail folder. Returns newest first.")]
+    [McpServerTool(Name = "list_emails"), Description("List recent emails from a mail folder. Returns newest first. Queries all accounts by default.")]
     public string ListEmails(
         [Description("Folder name: inbox, sent, drafts, or outbox (defaults to inbox)")] string? folder = null,
         [Description("Number of emails to return (defaults to 20, max 100)")] int count = 20,
         [Description("Filter by subject (optional)")] string? filterSubject = null,
         [Description("Filter by sender email (optional)")] string? filterSender = null,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName to query (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to query all accounts.")] string? account = null)
     {
         count = Math.Clamp(count, 1, 100);
         using var svc = new OutlookMailService();
@@ -33,11 +33,11 @@ public class EmailTools
         return JsonSerializer.Serialize(email, JsonOptions);
     }
 
-    [McpServerTool(Name = "search_emails"), Description("Search emails by keyword across subject, body, and sender.")]
+    [McpServerTool(Name = "search_emails"), Description("Search emails by keyword across subject, body, and sender. Searches all accounts by default.")]
     public string SearchEmails(
         [Description("Search query")] string query,
         [Description("Maximum results to return (defaults to 20, max 100)")] int maxResults = 20,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName to query (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to query all accounts.")] string? account = null)
     {
         maxResults = Math.Clamp(maxResults, 1, 100);
         using var svc = new OutlookMailService();
@@ -55,7 +55,7 @@ public class EmailTools
         [Description("Whether the body is HTML (defaults to false)")] bool isHtml = false,
         [Description("Importance: low, normal, high (defaults to normal)")] string? importance = null,
         [Description("File paths to attach (semicolon-separated, optional)")] string? attachments = null,
-        [Description("Account name to send from (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName to send from (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to use the primary account.")] string? account = null)
     {
         var attachmentPaths = string.IsNullOrEmpty(attachments)
             ? null

@@ -11,11 +11,11 @@ public class CalendarTools
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    [McpServerTool(Name = "list_events"), Description("List calendar events within a specified date range.")]
+    [McpServerTool(Name = "list_events"), Description("List calendar events within a specified date range. Queries all accounts by default.")]
     public string ListEvents(
         [Description("Start date (yyyy-MM-dd)")] string startDate,
         [Description("End date (yyyy-MM-dd)")] string endDate,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName to query (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to query all accounts.")] string? account = null)
     {
         var start = ParseDate(startDate);
         var end = ParseDate(endDate);
@@ -38,7 +38,7 @@ public class CalendarTools
         [Description("Event description/body (optional)")] string? body = null,
         [Description("Whether this is a meeting with attendees (optional)")] bool isMeeting = false,
         [Description("Semicolon-separated list of attendee email addresses (optional)")] string? attendees = null,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName to create in (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to use the primary account.")] string? account = null)
     {
         var startDt = ParseDateTime(startDate, startTime);
         var endDt = !string.IsNullOrEmpty(endDate) && !string.IsNullOrEmpty(endTime)
@@ -65,7 +65,7 @@ public class CalendarTools
         [Description("New end time (HH:mm, 24-hour format, optional)")] string? endTime = null,
         [Description("New location (optional)")] string? location = null,
         [Description("New description/body (optional)")] string? body = null,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName (from list_accounts). Usually not needed when an event ID is provided.")] string? account = null)
     {
         DateTime? startDt = null;
         DateTime? endDt = null;
@@ -88,21 +88,21 @@ public class CalendarTools
     [McpServerTool(Name = "delete_event"), Description("Delete a calendar event by its ID.")]
     public string DeleteEvent(
         [Description("Event ID (EntryID from list_events)")] string eventId,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName (from list_accounts). Usually not needed when an event ID is provided.")] string? account = null)
     {
         using var svc = new OutlookCalendarService();
         var result = svc.DeleteEvent(eventId, account);
         return JsonSerializer.Serialize(new { success = result }, JsonOptions);
     }
 
-    [McpServerTool(Name = "find_free_slots"), Description("Find available time slots in the calendar for scheduling.")]
+    [McpServerTool(Name = "find_free_slots"), Description("Find available time slots in the calendar for scheduling. Checks all accounts by default.")]
     public string FindFreeSlots(
         [Description("Start date (yyyy-MM-dd)")] string startDate,
         [Description("End date (yyyy-MM-dd, optional, defaults to 7 days from start)")] string? endDate = null,
         [Description("Slot duration in minutes (optional, defaults to 30)")] int duration = 30,
         [Description("Work day start hour 0-23 (optional, defaults to 9)")] int workDayStart = 9,
         [Description("Work day end hour 0-23 (optional, defaults to 17)")] int workDayEnd = 17,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName to query (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to query all accounts.")] string? account = null)
     {
         var start = ParseDate(startDate);
         var end = !string.IsNullOrEmpty(endDate) ? ParseDate(endDate) : start.AddDays(7);
@@ -118,7 +118,7 @@ public class CalendarTools
     [McpServerTool(Name = "get_attendee_status"), Description("Check the response status of meeting attendees.")]
     public string GetAttendeeStatus(
         [Description("Event ID (EntryID from list_events)")] string eventId,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName (from list_accounts). Usually not needed when an event ID is provided.")] string? account = null)
     {
         using var svc = new OutlookCalendarService();
         var status = svc.GetAttendeeStatus(eventId, account);

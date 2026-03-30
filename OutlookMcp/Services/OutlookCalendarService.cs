@@ -66,18 +66,39 @@ public class OutlookCalendarService : IDisposable
 
     public List<Dictionary<string, object?>> ListEvents(DateTime startDate, DateTime endDate, string? account)
     {
-        var calendar = GetCalendarFolder(account);
-        var filter = $"[Start] >= '{startDate:M/d/yyyy} 12:00 AM' AND [End] <= '{endDate.AddDays(1):M/d/yyyy} 12:00 AM'";
-        var items = calendar.Items.Restrict(filter);
-        items.Sort("[Start]");
-
         var events = new List<Dictionary<string, object?>>();
-        for (int i = 1; i <= items.Count; i++)
+
+        if (string.IsNullOrEmpty(account))
         {
-            var item = items.Item(i);
-            events.Add(AppointmentToDict(item));
+            var ns = GetNamespace();
+            var stores = ns.Stores;
+            for (int i = 1; i <= stores.Count; i++)
+            {
+                try { CollectEvents(stores.Item(i).GetDefaultFolder(OlFolderCalendar), startDate, endDate, events); }
+                catch { /* Store has no calendar folder */ }
+            }
+            events.Sort((a, b) => string.Compare(a["start"]?.ToString(), b["start"]?.ToString(), StringComparison.Ordinal));
         }
+        else
+        {
+            CollectEvents(GetCalendarFolder(account), startDate, endDate, events);
+        }
+
         return events;
+    }
+
+    private void CollectEvents(dynamic folder, DateTime startDate, DateTime endDate, List<Dictionary<string, object?>> events)
+    {
+        var items = folder.Items;
+        items.Sort("[Start]");
+        items.IncludeRecurrences = true;
+        var filter = $"[Start] >= '{startDate:M/d/yyyy} 12:00 AM' AND [End] <= '{endDate.AddDays(1):M/d/yyyy} 12:00 AM'";
+        var item = items.Find(filter);
+        while (item != null)
+        {
+            events.Add(AppointmentToDict(item));
+            item = items.FindNext();
+        }
     }
 
     public string CreateEvent(string subject, DateTime startDateTime, DateTime endDateTime,
@@ -172,22 +193,39 @@ public class OutlookCalendarService : IDisposable
     public List<Dictionary<string, string>> FindFreeSlots(DateTime startDate, DateTime endDate,
         int durationMinutes = 30, int workDayStart = 9, int workDayEnd = 17, string? account = null)
     {
-        // Get all events in range
-        var calendar = GetCalendarFolder(account);
         var filter = $"[Start] >= '{startDate:M/d/yyyy} 12:00 AM' AND [End] <= '{endDate.AddDays(1):M/d/yyyy} 12:00 AM'";
-        var items = calendar.Items.Restrict(filter);
-        items.Sort("[Start]");
 
-        // Collect busy slots (only Busy or OutOfOffice)
+        // Collect busy slots from all relevant calendars
         var busySlots = new List<(DateTime Start, DateTime End)>();
-        for (int i = 1; i <= items.Count; i++)
+
+        void CollectBusy(dynamic folder)
         {
-            var item = items.Item(i);
-            int busyStatus = (int)item.BusyStatus;
-            if (busyStatus == OlBusy || busyStatus == OlOutOfOffice)
+            var items = folder.Items;
+            items.Sort("[Start]");
+            items.IncludeRecurrences = true;
+            var item = items.Find(filter);
+            while (item != null)
             {
-                busySlots.Add(((DateTime)item.Start, (DateTime)item.End));
+                int busyStatus = (int)item.BusyStatus;
+                if (busyStatus == OlBusy || busyStatus == OlOutOfOffice)
+                    busySlots.Add(((DateTime)item.Start, (DateTime)item.End));
+                item = items.FindNext();
             }
+        }
+
+        if (string.IsNullOrEmpty(account))
+        {
+            var ns = GetNamespace();
+            var stores = ns.Stores;
+            for (int i = 1; i <= stores.Count; i++)
+            {
+                try { CollectBusy(stores.Item(i).GetDefaultFolder(OlFolderCalendar)); }
+                catch { /* Store has no calendar folder */ }
+            }
+        }
+        else
+        {
+            CollectBusy(GetCalendarFolder(account));
         }
 
         // Find free slots

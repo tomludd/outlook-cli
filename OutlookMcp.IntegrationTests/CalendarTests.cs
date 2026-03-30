@@ -5,10 +5,12 @@ namespace OutlookMcp.IntegrationTests;
 public class CalendarTests : IClassFixture<OutlookFixture>
 {
     private readonly OutlookCalendarService _svc;
+    private readonly ITestOutputHelper _output;
 
-    public CalendarTests(OutlookFixture fixture)
+    public CalendarTests(OutlookFixture fixture, ITestOutputHelper output)
     {
         _svc = fixture.CalendarService;
+        _output = output;
     }
 
     [Fact]
@@ -16,13 +18,17 @@ public class CalendarTests : IClassFixture<OutlookFixture>
     {
         var calendars = _svc.GetCalendars();
 
+        _output.WriteLine($"Found {calendars.Count} calendar(s):");
+        foreach (var cal in calendars)
+            _output.WriteLine($"  [{(cal.ContainsKey("isDefault") && (bool)cal["isDefault"]! ? "DEFAULT" : "      ")}] {cal.GetValueOrDefault("name")}");
+
         Assert.NotNull(calendars);
         Assert.NotEmpty(calendars);
 
         var defaultCal = calendars.FirstOrDefault(c => c.ContainsKey("isDefault") && (bool)c["isDefault"]!);
         Assert.NotNull(defaultCal);
         Assert.True(defaultCal.ContainsKey("name"));
-        Assert.True(defaultCal.ContainsKey("owner"));
+        Assert.False(string.IsNullOrEmpty(defaultCal["name"]?.ToString()));
     }
 
     [Fact]
@@ -31,8 +37,11 @@ public class CalendarTests : IClassFixture<OutlookFixture>
         var today = DateTime.Today;
         var events = _svc.ListEvents(today, today, null);
 
+        _output.WriteLine($"Events today ({today:yyyy-MM-dd}): {events.Count}");
+        foreach (var ev in events)
+            _output.WriteLine($"  {ev.GetValueOrDefault("start"),22}  {ev.GetValueOrDefault("subject")}  [{ev.GetValueOrDefault("account")}]");
+
         Assert.NotNull(events);
-        // May be empty if no events today — that's fine
     }
 
     [Fact]
@@ -41,6 +50,10 @@ public class CalendarTests : IClassFixture<OutlookFixture>
         var today = DateTime.Today;
         var endOfWeek = today.AddDays(7);
         var events = _svc.ListEvents(today, endOfWeek, null);
+
+        _output.WriteLine($"Events this week ({today:yyyy-MM-dd} to {endOfWeek:yyyy-MM-dd}): {events.Count}");
+        foreach (var ev in events)
+            _output.WriteLine($"  {ev.GetValueOrDefault("start"),22}  {ev.GetValueOrDefault("subject")}  [{ev.GetValueOrDefault("account")}]");
 
         Assert.NotNull(events);
     }
@@ -68,8 +81,12 @@ public class CalendarTests : IClassFixture<OutlookFixture>
         var today = DateTime.Today;
         var slots = _svc.FindFreeSlots(today, today, 30, 9, 17, null);
 
+        _output.WriteLine($"Free 30-min slots today: {slots.Count}");
+        foreach (var slot in slots.Take(5))
+            _output.WriteLine($"  {slot.GetValueOrDefault("start")} -> {slot.GetValueOrDefault("end")}");
+        if (slots.Count > 5) _output.WriteLine($"  ... and {slots.Count - 5} more");
+
         Assert.NotNull(slots);
-        // Weekday should have some slots unless calendar is fully booked
         if (today.DayOfWeek != DayOfWeek.Saturday && today.DayOfWeek != DayOfWeek.Sunday)
         {
             foreach (var slot in slots)
@@ -86,7 +103,11 @@ public class CalendarTests : IClassFixture<OutlookFixture>
         var today = DateTime.Today;
         var slots = _svc.FindFreeSlots(today, today.AddDays(7), 60, 9, 17, null);
 
+        _output.WriteLine($"Free 1-hour slots this week: {slots.Count}");
+        foreach (var slot in slots.Take(5))
+            _output.WriteLine($"  {slot.GetValueOrDefault("start")} -> {slot.GetValueOrDefault("end")}");
+        if (slots.Count > 5) _output.WriteLine($"  ... and {slots.Count - 5} more");
+
         Assert.NotNull(slots);
-        // A full week should have at least some free 1-hour slots
     }
 }

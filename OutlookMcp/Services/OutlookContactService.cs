@@ -47,11 +47,27 @@ public class OutlookContactService : IDisposable
 
     public List<Dictionary<string, object?>> ListContacts(int count, string? account = null)
     {
+        if (!string.IsNullOrEmpty(account))
+            return CollectContacts(GetStoreFolder(account, OlFolderContacts), count, account);
+
+        // Aggregate across all accounts
         var ns = GetNamespace();
-        var folder = GetStoreFolder(account, OlFolderContacts);
+        var all = new List<Dictionary<string, object?>>();
+        var stores = ns.Stores;
+        for (int i = 1; i <= stores.Count; i++)
+        {
+            var store = stores.Item(i);
+            try { all.AddRange(CollectContacts(store.GetDefaultFolder(OlFolderContacts), count, (string)store.DisplayName)); }
+            catch { /* Store may not have a contacts folder */ }
+        }
+        all.Sort((a, b) => string.Compare(a["fullName"]?.ToString(), b["fullName"]?.ToString(), StringComparison.OrdinalIgnoreCase));
+        return all.Take(count).ToList();
+    }
+
+    private static List<Dictionary<string, object?>> CollectContacts(dynamic folder, int count, string? accountName)
+    {
         var items = folder.Items;
         items.Sort("[LastName]");
-
         var contacts = new List<Dictionary<string, object?>>();
         int limit = Math.Min(count, items.Count);
         for (int i = 1; i <= limit; i++)
@@ -60,41 +76,55 @@ public class OutlookContactService : IDisposable
             {
                 var item = items.Item(i);
                 if ((int)item.Class == 40) // olContact
-                    contacts.Add(ContactToDict(item));
+                {
+                    var contact = ContactToDict(item);
+                    if (accountName != null) contact["account"] = accountName;
+                    contacts.Add(contact);
+                }
             }
-            catch
-            {
-                // Skip non-contact items (distribution lists, etc.)
-            }
+            catch { /* Skip non-contact items (distribution lists, etc.) */ }
         }
         return contacts;
     }
 
     public List<Dictionary<string, object?>> SearchContacts(string query, int maxResults, string? account = null)
     {
-        var ns = GetNamespace();
-        var folder = GetStoreFolder(account, OlFolderContacts);
-
         var filter = $"@SQL=(\"urn:schemas:contacts:cn\" LIKE '%{EscapeDasl(query)}%' " +
                      $"OR \"urn:schemas:contacts:email1\" LIKE '%{EscapeDasl(query)}%' " +
                      $"OR \"urn:schemas:contacts:o\" LIKE '%{EscapeDasl(query)}%')";
 
-        var items = folder.Items.Restrict(filter);
-
-        var contacts = new List<Dictionary<string, object?>>();
-        int limit = Math.Min(maxResults, items.Count);
-        for (int i = 1; i <= limit; i++)
+        List<Dictionary<string, object?>> SearchFolder(dynamic folder, string? accountName)
         {
-            try
+            var items = folder.Items.Restrict(filter);
+            var results = new List<Dictionary<string, object?>>();
+            int limit = Math.Min(maxResults, items.Count);
+            for (int i = 1; i <= limit; i++)
             {
-                contacts.Add(ContactToDict(items.Item(i)));
+                try
+                {
+                    var contact = ContactToDict(items.Item(i));
+                    if (accountName != null) contact["account"] = accountName;
+                    results.Add(contact);
+                }
+                catch { /* Skip non-contact items */ }
             }
-            catch
-            {
-                // Skip non-contact items
-            }
+            return results;
         }
-        return contacts;
+
+        if (!string.IsNullOrEmpty(account))
+            return SearchFolder(GetStoreFolder(account, OlFolderContacts), account);
+
+        // Search across all accounts
+        var ns = GetNamespace();
+        var all = new List<Dictionary<string, object?>>();
+        var stores = ns.Stores;
+        for (int i = 1; i <= stores.Count; i++)
+        {
+            var store = stores.Item(i);
+            try { all.AddRange(SearchFolder(store.GetDefaultFolder(OlFolderContacts), (string)store.DisplayName)); }
+            catch { /* Store may not have a contacts folder */ }
+        }
+        return all.Take(maxResults).ToList();
     }
 
     public Dictionary<string, object?> GetContact(string entryId)

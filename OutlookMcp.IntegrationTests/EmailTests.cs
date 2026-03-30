@@ -5,16 +5,22 @@ namespace OutlookMcp.IntegrationTests;
 public class EmailTests : IClassFixture<OutlookFixture>
 {
     private readonly OutlookMailService _svc;
+    private readonly ITestOutputHelper _output;
 
-    public EmailTests(OutlookFixture fixture)
+    public EmailTests(OutlookFixture fixture, ITestOutputHelper output)
     {
         _svc = fixture.MailService;
+        _output = output;
     }
 
     [Fact]
     public void ListEmails_Inbox_ReturnsListWithoutError()
     {
         var emails = _svc.ListEmails("inbox", 10, null, null);
+
+        _output.WriteLine($"Inbox emails returned: {emails.Count}");
+        foreach (var e in emails)
+            _output.WriteLine($"  [{e.GetValueOrDefault("receivedTime")}] {e.GetValueOrDefault("from"),30}  {e.GetValueOrDefault("subject")}  [{e.GetValueOrDefault("account")}]");
 
         Assert.NotNull(emails);
     }
@@ -23,6 +29,10 @@ public class EmailTests : IClassFixture<OutlookFixture>
     public void ListEmails_Sent_ReturnsListWithoutError()
     {
         var emails = _svc.ListEmails("sent", 10, null, null);
+
+        _output.WriteLine($"Sent emails returned: {emails.Count}");
+        foreach (var e in emails)
+            _output.WriteLine($"  [{e.GetValueOrDefault("receivedTime")}] -> {e.GetValueOrDefault("to"),30}  {e.GetValueOrDefault("subject")}  [{e.GetValueOrDefault("account")}]");
 
         Assert.NotNull(emails);
     }
@@ -89,10 +99,12 @@ public class EmailTests : IClassFixture<OutlookFixture>
     [Fact]
     public void SearchEmails_WithQuery_ReturnsListWithoutError()
     {
-        // Search for a common term
         var results = _svc.SearchEmails("meeting", 10);
 
+        _output.WriteLine($"Search 'meeting' returned: {results.Count}");
+        foreach (var e in results)
+            _output.WriteLine($"  [{e.GetValueOrDefault("receivedTime")}] {e.GetValueOrDefault("subject")}  [{e.GetValueOrDefault("account")}]");
+
         Assert.NotNull(results);
-        // May be empty if no emails match — that's fine
     }
 }

@@ -10,10 +10,10 @@ public class ContactTools
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    [McpServerTool(Name = "list_contacts"), Description("List contacts from the Outlook contacts folder.")]
+    [McpServerTool(Name = "list_contacts"), Description("List contacts from the Outlook contacts folder. Queries all accounts by default.")]
     public string ListContacts(
         [Description("Number of contacts to return (defaults to 50, max 500)")] int count = 50,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName to query (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to query all accounts.")] string? account = null)
     {
         count = Math.Clamp(count, 1, 500);
         using var svc = new OutlookContactService();
@@ -21,11 +21,11 @@ public class ContactTools
         return JsonSerializer.Serialize(contacts, JsonOptions);
     }
 
-    [McpServerTool(Name = "search_contacts"), Description("Search contacts by name, email, or company.")]
+    [McpServerTool(Name = "search_contacts"), Description("Search contacts by name, email, or company. Searches all accounts by default.")]
     public string SearchContacts(
         [Description("Search query")] string query,
         [Description("Maximum results to return (defaults to 20, max 100)")] int maxResults = 20,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName to query (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to query all accounts.")] string? account = null)
     {
         maxResults = Math.Clamp(maxResults, 1, 100);
         using var svc = new OutlookContactService();
@@ -53,7 +53,7 @@ public class ContactTools
         [Description("Job title (optional)")] string? jobTitle = null,
         [Description("Business address (optional)")] string? businessAddress = null,
         [Description("Notes (optional)")] string? notes = null,
-        [Description("Account name to use (optional, use list_accounts to see available accounts)")] string? account = null)
+        [Description("Account displayName to create in (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to use the primary account.")] string? account = null)
     {
         using var svc = new OutlookContactService();
         var id = svc.CreateContact(firstName, lastName, email, phone, mobilePhone, company, jobTitle, businessAddress, notes, account);

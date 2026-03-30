@@ -80,33 +80,53 @@ public class OutlookMailService : IDisposable
 
     public List<Dictionary<string, object?>> ListEmails(string? folder, int count, string? filterSubject, string? filterSender, string? account = null)
     {
-        var mailFolder = GetFolder(folder, account);
+        if (!string.IsNullOrEmpty(account))
+            return CollectEmails(GetFolder(folder, account), count, filterSubject, filterSender, account);
+
+        // Aggregate across all accounts when no account is specified
+        int folderType = (folder?.ToLowerInvariant()) switch
+        {
+            "sent" or "sentmail" => OlFolderSentMail,
+            "drafts" => OlFolderDrafts,
+            "outbox" => OlFolderOutbox,
+            _ => OlFolderInbox
+        };
+
+        var all = new List<Dictionary<string, object?>>();
+        var ns = GetNamespace();
+        var stores = ns.Stores;
+        for (int i = 1; i <= stores.Count; i++)
+        {
+            var store = stores.Item(i);
+            try { all.AddRange(CollectEmails(store.GetDefaultFolder(folderType), count, filterSubject, filterSender, (string)store.DisplayName)); }
+            catch { /* Store may not have this folder */ }
+        }
+
+        all.Sort((a, b) => string.Compare(b["receivedTime"]?.ToString(), a["receivedTime"]?.ToString(), StringComparison.Ordinal));
+        return all.Take(count).ToList();
+    }
+
+    private List<Dictionary<string, object?>> CollectEmails(dynamic mailFolder, int count, string? filterSubject, string? filterSender, string? accountName)
+    {
         var items = mailFolder.Items;
         items.Sort("[ReceivedTime]", true); // newest first
 
-        // Apply DASL filter if provided
         if (!string.IsNullOrEmpty(filterSubject))
-        {
             items = items.Restrict($"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{EscapeDasl(filterSubject)}%'");
-        }
         else if (!string.IsNullOrEmpty(filterSender))
-        {
             items = items.Restrict($"@SQL=\"urn:schemas:httpmail:fromemail\" LIKE '%{EscapeDasl(filterSender)}%'");
-        }
 
         var emails = new List<Dictionary<string, object?>>();
         int limit = Math.Min(count, items.Count);
         for (int i = 1; i <= limit; i++)
         {
-            var item = items.Item(i);
             try
             {
-                emails.Add(MailToDict(item, includeBody: false));
+                var email = MailToDict(items.Item(i), includeBody: false);
+                if (accountName != null) email["account"] = accountName;
+                emails.Add(email);
             }
-            catch
-            {
-                // Skip non-mail items (meeting requests, etc.)
-            }
+            catch { /* Skip non-mail items (meeting requests, etc.) */ }
         }
         return emails;
     }
@@ -237,33 +257,45 @@ public class OutlookMailService : IDisposable
 
     public List<Dictionary<string, object?>> SearchEmails(string query, int maxResults, string? account = null)
     {
-        var ns = GetNamespace();
-        var inbox = string.IsNullOrEmpty(account)
-            ? ns.GetDefaultFolder(OlFolderInbox)
-            : GetStoreFolder(account, OlFolderInbox);
-
-        // Search across subject, body, and sender
         var filter = $"@SQL=(\"urn:schemas:httpmail:subject\" LIKE '%{EscapeDasl(query)}%' " +
                      $"OR \"urn:schemas:httpmail:textdescription\" LIKE '%{EscapeDasl(query)}%' " +
                      $"OR \"urn:schemas:httpmail:fromemail\" LIKE '%{EscapeDasl(query)}%')";
 
-        var items = inbox.Items.Restrict(filter);
-        items.Sort("[ReceivedTime]", true);
-
-        var emails = new List<Dictionary<string, object?>>();
-        int limit = Math.Min(maxResults, items.Count);
-        for (int i = 1; i <= limit; i++)
+        List<Dictionary<string, object?>> SearchFolder(dynamic inbox, string? accountName)
         {
-            try
+            var items = inbox.Items.Restrict(filter);
+            items.Sort("[ReceivedTime]", true);
+            var results = new List<Dictionary<string, object?>>();
+            int limit = Math.Min(maxResults, items.Count);
+            for (int i = 1; i <= limit; i++)
             {
-                emails.Add(MailToDict(items.Item(i), includeBody: false));
+                try
+                {
+                    var email = MailToDict(items.Item(i), includeBody: false);
+                    if (accountName != null) email["account"] = accountName;
+                    results.Add(email);
+                }
+                catch { /* Skip non-mail items */ }
             }
-            catch
-            {
-                // Skip non-mail items
-            }
+            return results;
         }
-        return emails;
+
+        if (!string.IsNullOrEmpty(account))
+            return SearchFolder(GetStoreFolder(account, OlFolderInbox), account);
+
+        // Search across all accounts
+        var ns = GetNamespace();
+        var all = new List<Dictionary<string, object?>>();
+        var stores = ns.Stores;
+        for (int i = 1; i <= stores.Count; i++)
+        {
+            var store = stores.Item(i);
+            try { all.AddRange(SearchFolder(store.GetDefaultFolder(OlFolderInbox), (string)store.DisplayName)); }
+            catch { /* Store may not have inbox */ }
+        }
+
+        all.Sort((a, b) => string.Compare(b["receivedTime"]?.ToString(), a["receivedTime"]?.ToString(), StringComparison.Ordinal));
+        return all.Take(maxResults).ToList();
     }
 
     private static Dictionary<string, object?> MailToDict(dynamic mail, bool includeBody)
