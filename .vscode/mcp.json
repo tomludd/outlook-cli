@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "outlook-mcp": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/OutlookMcp/OutlookMcp.csproj"
+      ]
+    }
+  }
+}
