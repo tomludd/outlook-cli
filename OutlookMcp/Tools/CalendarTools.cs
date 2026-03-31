@@ -11,7 +11,7 @@ public class CalendarTools
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    [McpServerTool(Name = "list_events"), Description("List calendar events within a specified date range. Queries all accounts by default.")]
+    [McpServerTool(Name = "list_events"), Description("List calendar events within a specified date range. Returns subject, time, location, organizer, and meeting status. Use get_event for full body and attendees. Queries all accounts by default.")]
     public string ListEvents(
         [Description("Start date (yyyy-MM-dd)")] string startDate,
         [Description("End date (yyyy-MM-dd)")] string endDate,
@@ -25,6 +25,15 @@ public class CalendarTools
         using var svc = new OutlookCalendarService();
         var events = svc.ListEvents(start, end, account);
         return JsonSerializer.Serialize(events, JsonOptions);
+    }
+
+    [McpServerTool(Name = "get_event"), Description("Get the full details of a calendar event by its ID, including body and attendees.")]
+    public string GetEvent(
+        [Description("Event ID (EntryID from list_events)")] string eventId)
+    {
+        using var svc = new OutlookCalendarService();
+        var ev = svc.GetEvent(eventId);
+        return JsonSerializer.Serialize(ev, JsonOptions);
     }
 
     [McpServerTool(Name = "create_event"), Description("Create a new calendar event or meeting.")]

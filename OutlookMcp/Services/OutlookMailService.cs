@@ -78,10 +78,10 @@ public class OutlookMailService : IDisposable
         };
     }
 
-    public List<Dictionary<string, object?>> ListEmails(string? folder, int count, string? filterSubject, string? filterSender, string? account = null)
+    public List<Dictionary<string, object?>> ListEmails(string? folder, int count, string? filterSubject, string? filterSender, string? account = null, string? receivedAfter = null, string? receivedBefore = null)
     {
         if (!string.IsNullOrEmpty(account))
-            return CollectEmails(GetFolder(folder, account), count, filterSubject, filterSender, account);
+            return CollectEmails(GetFolder(folder, account), count, filterSubject, filterSender, account, receivedAfter, receivedBefore);
 
         // Aggregate across all accounts when no account is specified
         int folderType = (folder?.ToLowerInvariant()) switch
@@ -98,7 +98,7 @@ public class OutlookMailService : IDisposable
         for (int i = 1; i <= stores.Count; i++)
         {
             var store = stores.Item(i);
-            try { all.AddRange(CollectEmails(store.GetDefaultFolder(folderType), count, filterSubject, filterSender, (string)store.DisplayName)); }
+            try { all.AddRange(CollectEmails(store.GetDefaultFolder(folderType), count, filterSubject, filterSender, (string)store.DisplayName, receivedAfter, receivedBefore)); }
             catch { /* Store may not have this folder */ }
         }
 
@@ -106,15 +106,24 @@ public class OutlookMailService : IDisposable
         return all.Take(count).ToList();
     }
 
-    private List<Dictionary<string, object?>> CollectEmails(dynamic mailFolder, int count, string? filterSubject, string? filterSender, string? accountName)
+    private List<Dictionary<string, object?>> CollectEmails(dynamic mailFolder, int count, string? filterSubject, string? filterSender, string? accountName, string? receivedAfter = null, string? receivedBefore = null)
     {
         var items = mailFolder.Items;
         items.Sort("[ReceivedTime]", true); // newest first
 
+        // Build combined DASL filter
+        var conditions = new List<string>();
         if (!string.IsNullOrEmpty(filterSubject))
-            items = items.Restrict($"@SQL=\"urn:schemas:httpmail:subject\" LIKE '%{EscapeDasl(filterSubject)}%'");
-        else if (!string.IsNullOrEmpty(filterSender))
-            items = items.Restrict($"@SQL=\"urn:schemas:httpmail:fromemail\" LIKE '%{EscapeDasl(filterSender)}%'");
+            conditions.Add($"\"urn:schemas:httpmail:subject\" LIKE '%{EscapeDasl(filterSubject)}%'");
+        if (!string.IsNullOrEmpty(filterSender))
+            conditions.Add($"\"urn:schemas:httpmail:fromemail\" LIKE '%{EscapeDasl(filterSender)}%'");
+        if (!string.IsNullOrEmpty(receivedAfter) && DateTime.TryParse(receivedAfter, out var afterDate))
+            conditions.Add($"\"urn:schemas:httpmail:datereceived\" >= '{afterDate:yyyy-MM-dd HH:mm}'");
+        if (!string.IsNullOrEmpty(receivedBefore) && DateTime.TryParse(receivedBefore, out var beforeDate))
+            conditions.Add($"\"urn:schemas:httpmail:datereceived\" < '{beforeDate:yyyy-MM-dd HH:mm}'");
+
+        if (conditions.Count > 0)
+            items = items.Restrict($"@SQL={string.Join(" AND ", conditions)}");
 
         var emails = new List<Dictionary<string, object?>>();
         int limit = Math.Min(count, items.Count);
@@ -300,14 +309,17 @@ public class OutlookMailService : IDisposable
 
     private static Dictionary<string, object?> MailToDict(dynamic mail, bool includeBody)
     {
+        var to = (string)mail.To;
+        var cc = (string)mail.CC;
+
         var dict = new Dictionary<string, object?>
         {
             ["id"] = (string)mail.EntryID,
             ["subject"] = (string)mail.Subject,
             ["from"] = (string)mail.SenderEmailAddress,
             ["senderName"] = (string)mail.SenderName,
-            ["to"] = (string)mail.To,
-            ["cc"] = (string)mail.CC,
+            ["to"] = includeBody ? to : (to?.Length > 80 ? to[..80] + "..." : to),
+            ["cc"] = includeBody ? cc : (cc?.Length > 80 ? cc[..80] + "..." : cc),
             ["receivedTime"] = ((DateTime)mail.ReceivedTime).ToString("yyyy-MM-dd HH:mm"),
             ["isRead"] = (bool)mail.UnRead == false,
         };

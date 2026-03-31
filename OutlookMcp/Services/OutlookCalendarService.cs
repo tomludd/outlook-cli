@@ -96,7 +96,7 @@ public class OutlookCalendarService : IDisposable
         var item = items.Find(filter);
         while (item != null)
         {
-            events.Add(AppointmentToDict(item));
+            events.Add(AppointmentToDict(item, bodyLength: 50));
             item = items.FindNext();
         }
     }
@@ -248,8 +248,8 @@ public class OutlookCalendarService : IDisposable
                     {
                         freeSlots.Add(new Dictionary<string, string>
                         {
-                            ["start"] = slotStart.ToString("M/d/yyyy h:mm tt"),
-                            ["end"] = slotEnd.ToString("M/d/yyyy h:mm tt")
+                            ["start"] = slotStart.ToString("yyyy-MM-dd HH:mm"),
+                            ["end"] = slotEnd.ToString("yyyy-MM-dd HH:mm")
                         });
                     }
 
@@ -295,7 +295,6 @@ public class OutlookCalendarService : IDisposable
             attendees.Add(new Dictionary<string, string>
             {
                 ["name"] = (string)recipient.Name,
-                ["email"] = (string)recipient.Address,
                 ["responseStatus"] = responseStatus
             });
         }
@@ -303,8 +302,8 @@ public class OutlookCalendarService : IDisposable
         var result = new Dictionary<string, object?>
         {
             ["subject"] = (string)appointment.Subject,
-            ["start"] = ((DateTime)appointment.Start).ToString("M/d/yyyy h:mm tt"),
-            ["end"] = ((DateTime)appointment.End).ToString("M/d/yyyy h:mm tt"),
+            ["start"] = ((DateTime)appointment.Start).ToString("yyyy-MM-dd HH:mm"),
+            ["end"] = ((DateTime)appointment.End).ToString("yyyy-MM-dd HH:mm"),
             ["location"] = (string)appointment.Location,
             ["organizer"] = (string)appointment.Organizer,
             ["attendees"] = attendees
@@ -364,22 +363,20 @@ public class OutlookCalendarService : IDisposable
         return accounts;
     }
 
-    private Dictionary<string, object?> AppointmentToDict(dynamic appointment)
+    private Dictionary<string, object?> AppointmentToDict(dynamic appointment, int bodyLength = 0, bool includeAttendees = false)
     {
         var dict = new Dictionary<string, object?>
         {
             ["id"] = (string)appointment.EntryID,
             ["subject"] = (string)appointment.Subject,
-            ["start"] = ((DateTime)appointment.Start).ToString("M/d/yyyy h:mm tt"),
-            ["end"] = ((DateTime)appointment.End).ToString("M/d/yyyy h:mm tt"),
+            ["start"] = ((DateTime)appointment.Start).ToString("yyyy-MM-dd HH:mm"),
+            ["end"] = ((DateTime)appointment.End).ToString("yyyy-MM-dd HH:mm"),
             ["location"] = (string)appointment.Location,
-            ["body"] = (string)appointment.Body,
             ["organizer"] = (string)appointment.Organizer,
             ["isRecurring"] = (bool)appointment.IsRecurring,
             ["isMeeting"] = (int)appointment.MeetingStatus == OlMeeting
         };
 
-        // Busy status
         dict["busyStatus"] = (int)appointment.BusyStatus switch
         {
             OlBusy => "Busy",
@@ -389,10 +386,15 @@ public class OutlookCalendarService : IDisposable
             _ => "Unknown"
         };
 
-        // Attendees
-        var attendees = new List<Dictionary<string, string>>();
-        if ((int)appointment.MeetingStatus == OlMeeting)
+        if (bodyLength > 0)
         {
+            var fullBody = (string)appointment.Body;
+            dict["body"] = fullBody.Length <= bodyLength ? fullBody : fullBody[..bodyLength] + "...";
+        }
+
+        if (includeAttendees && (int)appointment.MeetingStatus == OlMeeting)
+        {
+            var attendees = new List<Dictionary<string, string>>();
             var recipients = appointment.Recipients;
             for (int i = 1; i <= recipients.Count; i++)
             {
@@ -409,14 +411,31 @@ public class OutlookCalendarService : IDisposable
                 attendees.Add(new Dictionary<string, string>
                 {
                     ["name"] = (string)recipient.Name,
-                    ["email"] = (string)recipient.Address,
                     ["responseStatus"] = responseStatus
                 });
             }
+            dict["attendees"] = attendees;
         }
-        dict["attendees"] = attendees;
 
         return dict;
+    }
+
+    public Dictionary<string, object?> GetEvent(string eventId)
+    {
+        var ns = GetNamespace();
+        dynamic appointment;
+        try
+        {
+            appointment = ns.GetItemFromID(eventId);
+        }
+        catch
+        {
+            throw new InvalidOperationException($"Event not found with ID: {eventId}");
+        }
+
+        var result = AppointmentToDict(appointment, bodyLength: int.MaxValue, includeAttendees: true);
+        Marshal.ReleaseComObject(appointment);
+        return result;
     }
 
     public void Dispose()

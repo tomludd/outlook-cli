@@ -16,11 +16,13 @@ public class EmailTools
         [Description("Number of emails to return (defaults to 20, max 100)")] int count = 20,
         [Description("Filter by subject (optional)")] string? filterSubject = null,
         [Description("Filter by sender email (optional)")] string? filterSender = null,
-        [Description("Account displayName to query (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to query all accounts.")] string? account = null)
+        [Description("Account displayName to query (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to query all accounts.")] string? account = null,
+        [Description("Filter emails received on or after this date (yyyy-MM-dd, optional)")] string? receivedAfter = null,
+        [Description("Filter emails received before this date (yyyy-MM-dd, optional)")] string? receivedBefore = null)
     {
         count = Math.Clamp(count, 1, 100);
         using var svc = new OutlookMailService();
-        var emails = svc.ListEmails(folder, count, filterSubject, filterSender, account);
+        var emails = svc.ListEmails(folder, count, filterSubject, filterSender, account, receivedAfter, receivedBefore);
         return JsonSerializer.Serialize(emails, JsonOptions);
     }
 
