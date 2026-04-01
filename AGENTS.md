@@ -33,12 +33,6 @@ dotnet tool install --global outlook-mcp --add-source ./nupkg
 dotnet tool update --global outlook-mcp --add-source ./nupkg
 ```
 
-Verify:
-
-```powershell
-outlook-mcp --version
-```
-
 ## MCP server configuration
 
 ```json
