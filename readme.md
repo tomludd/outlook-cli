@@ -8,55 +8,43 @@ This is a C# reimplementation of [merajmehrabi/Outlook_Calendar_MCP](https://git
 
 - Windows
 - Microsoft Outlook desktop client installed
-- .NET 9.0 SDK
+- .NET 10.0 SDK
 
-## Build
+## Install as a global dotnet tool
 
-```bash
-dotnet build
+Pack and install (or update) the tool from source:
+
+```powershell
+dotnet pack OutlookMcp/OutlookMcp.csproj -c Release -o nupkg
+dotnet tool install --global outlook-mcp --add-source ./nupkg
+```
+
+If you already have a previous version installed, update instead:
+
+```powershell
+dotnet pack OutlookMcp/OutlookMcp.csproj -c Release -o nupkg
+dotnet tool update --global outlook-mcp --add-source ./nupkg
+```
+
+Verify the installation:
+
+```powershell
+outlook-mcp --version
 ```
 
 ## MCP Configuration
 
 ### VS Code (GitHub Copilot / Cline)
 
-Add to your MCP settings:
+Add to your `mcp.json`:
 
 ```json
 {
   "servers": {
-    "outlook-calendar": {
+    "outlook-mcp": {
       "type": "stdio",
-      "command": "dotnet",
-      "args": ["run", "--project", "D:\\outlook-mcp\\OutlookMcp"]
-    }
-  }
-}
-```
-
-Or if you publish a self-contained exe:
-
-```json
-{
-  "servers": {
-    "outlook-calendar": {
-      "type": "stdio",
-      "command": "D:\\outlook-mcp\\OutlookMcp\\bin\\Release\\net9.0\\OutlookMcp.exe"
-    }
-  }
-}
-```
-
-### Claude Desktop
-
-Add to `%APPDATA%\Claude\claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "outlook-calendar": {
-      "command": "dotnet",
-      "args": ["run", "--project", "D:\\outlook-mcp\\OutlookMcp"]
+      "command": "outlook-mcp",
+      "args": []
     }
   }
 }
