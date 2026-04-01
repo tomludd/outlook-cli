@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Globalization;
 using System.Text.Json;
 
 namespace OutlookMcp.Services;
@@ -89,15 +90,12 @@ public class OutlookCalendarService : IDisposable
 
     private void CollectEvents(dynamic folder, DateTime startDate, DateTime endDate, List<Dictionary<string, object?>> events)
     {
-        var items = folder.Items;
-        items.Sort("[Start]");
-        items.IncludeRecurrences = true;
-        var filter = $"[Start] >= '{startDate:M/d/yyyy} 12:00 AM' AND [End] <= '{endDate.AddDays(1):M/d/yyyy} 12:00 AM'";
-        var item = items.Find(filter);
+        var restrictedItems = GetCalendarItemsInRange(folder, startDate, endDate);
+        var item = restrictedItems.GetFirst();
         while (item != null)
         {
             events.Add(AppointmentToDict(item, bodyLength: 50));
-            item = items.FindNext();
+            item = restrictedItems.GetNext();
         }
     }
 
@@ -193,23 +191,19 @@ public class OutlookCalendarService : IDisposable
     public List<Dictionary<string, string>> FindFreeSlots(DateTime startDate, DateTime endDate,
         int durationMinutes = 30, int workDayStart = 9, int workDayEnd = 17, string? account = null)
     {
-        var filter = $"[Start] >= '{startDate:M/d/yyyy} 12:00 AM' AND [End] <= '{endDate.AddDays(1):M/d/yyyy} 12:00 AM'";
-
         // Collect busy slots from all relevant calendars
         var busySlots = new List<(DateTime Start, DateTime End)>();
 
         void CollectBusy(dynamic folder)
         {
-            var items = folder.Items;
-            items.Sort("[Start]");
-            items.IncludeRecurrences = true;
-            var item = items.Find(filter);
+            var restrictedItems = GetCalendarItemsInRange(folder, startDate, endDate);
+            var item = restrictedItems.GetFirst();
             while (item != null)
             {
                 int busyStatus = (int)item.BusyStatus;
                 if (busyStatus == OlBusy || busyStatus == OlOutOfOffice)
                     busySlots.Add(((DateTime)item.Start, (DateTime)item.End));
-                item = items.FindNext();
+                item = restrictedItems.GetNext();
             }
         }
 
@@ -260,6 +254,26 @@ public class OutlookCalendarService : IDisposable
         }
 
         return freeSlots;
+    }
+
+    private static dynamic GetCalendarItemsInRange(dynamic folder, DateTime startDate, DateTime endDate)
+    {
+        var items = folder.Items;
+        items.Sort("[Start]");
+        items.IncludeRecurrences = true;
+        return items.Restrict(BuildDateRangeFilter(startDate, endDate));
+    }
+
+    internal static string BuildDateRangeFilter(DateTime startDate, DateTime endDate)
+    {
+        var rangeStart = startDate.Date;
+        var rangeEndExclusive = endDate.Date.AddDays(1);
+        return $"[Start] < '{FormatOutlookDateTime(rangeEndExclusive)}' AND [End] > '{FormatOutlookDateTime(rangeStart)}'";
+    }
+
+    internal static string FormatOutlookDateTime(DateTime value)
+    {
+        return value.ToString("g", CultureInfo.CurrentCulture);
     }
 
     public Dictionary<string, object?> GetAttendeeStatus(string eventId, string? account)

@@ -1,3 +1,4 @@
+using System.Globalization;
 using OutlookMcp.Services;
 
 namespace OutlookMcp.IntegrationTests;
@@ -109,5 +110,35 @@ public class CalendarTests : IClassFixture<OutlookFixture>
         if (slots.Count > 5) _output.WriteLine($"  ... and {slots.Count - 5} more");
 
         Assert.NotNull(slots);
+    }
+}
+
+public class CalendarFilterTests
+{
+    [Fact]
+    public void BuildDateRangeFilter_UsesCurrentCultureAndInclusiveDayRange()
+    {
+        var originalCulture = CultureInfo.CurrentCulture;
+        var originalUiCulture = CultureInfo.CurrentUICulture;
+
+        try
+        {
+            var culture = CultureInfo.GetCultureInfo("nb-NO");
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+
+            var filter = OutlookCalendarService.BuildDateRangeFilter(
+                new DateTime(2026, 4, 1),
+                new DateTime(2026, 4, 2));
+
+            Assert.Equal("[Start] < '03.04.2026 00:00' AND [End] > '01.04.2026 00:00'", filter);
+            Assert.DoesNotContain("4/1/2026", filter, StringComparison.Ordinal);
+            Assert.DoesNotContain("4/3/2026", filter, StringComparison.Ordinal);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = originalCulture;
+            CultureInfo.CurrentUICulture = originalUiCulture;
+        }
     }
 }
