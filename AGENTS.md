@@ -22,6 +22,8 @@ dotnet build
 
 Run these commands from the repo root whenever you change `OutlookMcp`:
 
+> **Always bump `<Version>` in `OutlookMcp/OutlookMcp.csproj` before packing.** `dotnet tool update` requires a higher version number to pick up changes.
+
 ```powershell
 # Pack a new .nupkg
 dotnet pack OutlookMcp/OutlookMcp.csproj -c Release -o nupkg

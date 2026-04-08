@@ -14,7 +14,7 @@ public class CalendarTools
     [McpServerTool(Name = "list_events"), Description("List calendar events within a specified date range. Returns subject, time, location, organizer, and meeting status. Use get_event for full body and attendees. Queries all accounts by default.")]
     public string ListEvents(
         [Description("Start date (yyyy-MM-dd)")] string startDate,
-        [Description("End date (yyyy-MM-dd)")] string endDate,
+        [Description("End date (yyyy-MM-dd), use the same day as startDate to capture the full day")] string endDate,
         [Description("Account displayName to query (from list_accounts, e.g. 'tommy.kihlstrom@thon.no'). Omit to query all accounts.")] string? account = null)
     {
         var start = ParseDate(startDate);

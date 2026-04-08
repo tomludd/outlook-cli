@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 using OutlookMcp.Services;
 
 namespace OutlookMcp.IntegrationTests;
@@ -110,6 +111,58 @@ public class CalendarTests : IClassFixture<OutlookFixture>
         if (slots.Count > 5) _output.WriteLine($"  ... and {slots.Count - 5} more");
 
         Assert.NotNull(slots);
+    }
+
+    [Fact]
+    public void CalendarTools_ListEvents_WithJsonRequest_AnalyzeMaxResults()
+    {
+        var tools = new OutlookMcp.Tools.CalendarTools();
+        var resultJson = tools.ListEvents("2026-04-07", "2026-04-08", account: null);
+        _output.WriteLine($"Raw result JSON length: {resultJson?.Length}");
+
+        List<Dictionary<string, object?>>? events = null;
+        try
+        {
+            events = JsonSerializer.Deserialize<List<Dictionary<string, object?>>>(resultJson!);
+        }
+        catch (Exception ex)
+        {
+            _output.WriteLine($"Failed to parse result JSON: {ex}");
+            throw;
+        }
+
+            var count = events?.Count ?? 0;
+            _output.WriteLine($"Events returned: {count}");
+            if (events != null)
+            {
+                foreach (var ev in events.Take(5))
+                    _output.WriteLine($"  {ev.GetValueOrDefault("start")}  {ev.GetValueOrDefault("subject")}  [{ev.GetValueOrDefault("account")}]");
+
+                // Verify each event intersects the requested date range (service uses inclusive-day intersection logic)
+                var reqStart = DateTime.ParseExact("2026-04-07", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var reqEnd = DateTime.ParseExact("2026-04-08", "yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var rangeStart = reqStart.Date;
+                var rangeEndExclusive = reqEnd.Date.AddDays(1);
+
+                foreach (var ev in events)
+                {
+                    var startObj = ev.GetValueOrDefault("start");
+                    var endObj = ev.GetValueOrDefault("end");
+                    Assert.NotNull(startObj);
+                    Assert.NotNull(endObj);
+
+                    var evStart = DateTime.ParseExact(startObj!.ToString()!, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+                    var evEnd = DateTime.ParseExact(endObj!.ToString()!, "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+
+                    var intersects = evStart < rangeEndExclusive && evEnd > rangeStart;
+                    if (!intersects)
+                        _output.WriteLine($"Event outside range: id={ev.GetValueOrDefault("id")}, start={evStart}, end={evEnd}");
+
+                    Assert.True(intersects, $"Event does not intersect requested range: {ev.GetValueOrDefault("id")}");
+                }
+            }
+
+            Assert.NotNull(events);
     }
 }
 
