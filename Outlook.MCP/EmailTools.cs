@@ -1,9 +1,9 @@
 using System.ComponentModel;
 using System.Text.Json;
 using ModelContextProtocol.Server;
-using OutlookMcp.Services;
+using Outlook.COM;
 
-namespace OutlookMcp.Tools;
+namespace Outlook.MCP;
 
 [McpServerToolType]
 public class EmailTools

@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\OutlookMcp\OutlookMcp.csproj" />
+    <ProjectReference Include="..\Outlook.MCP\Outlook.MCP.csproj" />
   </ItemGroup>
 
 </Project>

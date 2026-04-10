@@ -1,6 +1,6 @@
-using OutlookMcp.Services;
+using Outlook.COM;
 
-namespace OutlookMcp.IntegrationTests;
+namespace Outlook.COM.IntegrationTests;
 
 public class OutlookFixture : IDisposable
 {

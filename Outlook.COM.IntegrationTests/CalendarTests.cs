@@ -1,8 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
-using OutlookMcp.Services;
+using Outlook.COM;
 
-namespace OutlookMcp.IntegrationTests;
+namespace Outlook.COM.IntegrationTests;
 
 public class CalendarTests : IClassFixture<OutlookFixture>
 {
@@ -116,7 +116,7 @@ public class CalendarTests : IClassFixture<OutlookFixture>
     [Fact]
     public void CalendarTools_ListEvents_WithJsonRequest_AnalyzeMaxResults()
     {
-        var tools = new OutlookMcp.Tools.CalendarTools();
+        var tools = new Outlook.MCP.CalendarTools();
         var resultJson = tools.ListEvents("2026-04-07", "2026-04-08", account: null);
         _output.WriteLine($"Raw result JSON length: {resultJson?.Length}");
 

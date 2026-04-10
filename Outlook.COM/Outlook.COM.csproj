@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>CA1416</NoWarn>
+    <PackageId>outlook-com</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Tommy Kihlstrøm</Authors>
+    <Description>Outlook COM interop service library</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Outlook.COM.IntegrationTests" />
+  </ItemGroup>
+</Project>

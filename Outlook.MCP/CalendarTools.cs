@@ -2,9 +2,9 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
 using ModelContextProtocol.Server;
-using OutlookMcp.Services;
+using Outlook.COM;
 
-namespace OutlookMcp.Tools;
+namespace Outlook.MCP;
 
 [McpServerToolType]
 public class CalendarTools

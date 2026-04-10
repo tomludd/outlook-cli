@@ -3,7 +3,7 @@ using System.Runtime.Versioning;
 using System.Globalization;
 using System.Text.Json;
 
-namespace OutlookMcp.Services;
+namespace Outlook.COM;
 
 [SupportedOSPlatform("windows")]
 public class OutlookCalendarService : IDisposable

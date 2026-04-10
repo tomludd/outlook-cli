@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace OutlookMcp.Services;
+namespace Outlook.COM;
 
 [SupportedOSPlatform("windows")]
 public class OutlookContactService : IDisposable
