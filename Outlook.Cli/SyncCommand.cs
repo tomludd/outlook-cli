@@ -128,7 +128,7 @@ public static class SyncCommand
                 : DateTime.Today.AddYears(2);
 
             using var svc = new OutlookCalendarService();
-            var events = svc.ListEvents(from, to, account, bodyLength: int.MaxValue);
+            var events = svc.ListEvents(from, to, account);
             var synced = events
                 .Where(e => e.TryGetValue("body", out var b) && b is string s && s.Contains("[outlook-sync:"))
                 .ToList();

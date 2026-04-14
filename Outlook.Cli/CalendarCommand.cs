@@ -39,14 +39,13 @@ public static class CalendarCommand
             var account        = ctx.GetValue(accountOpt);
             var includeBlocked = ctx.GetValue(includeBlockedOpt);
             using var svc = new OutlookCalendarService();
-            var events = svc.ListEvents(start, end, account, bodyLength: includeBlocked ? 50 : 200);
+            var events = svc.ListEvents(start, end, account);
             if (!includeBlocked)
                 events = events.Where(e => !e.TryGetValue("body", out var b) || b is not string s || !s.Contains("[outlook-sync:")).ToList();
-            // Trim body back to 50 chars for display consistency
-            if (!includeBlocked)
-                foreach (var ev in events)
-                    if (ev.TryGetValue("body", out var b) && b is string s && s.Length > 50)
-                        ev["body"] = s[..50] + "...";
+            // Truncate body to 50 chars for display
+            foreach (var ev in events)
+                if (ev.TryGetValue("body", out var b) && b is string s && s.Length > 50)
+                    ev["body"] = s[..50] + "...";
             Console.WriteLine(JsonSerializer.Serialize(events, JsonOptions));
         });
         return cmd;

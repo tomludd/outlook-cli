@@ -65,7 +65,7 @@ public class OutlookCalendarService : IDisposable
         return GetStoreFolder(account, OlFolderCalendar);
     }
 
-    public List<Dictionary<string, object?>> ListEvents(DateTime startDate, DateTime endDate, string? account, int bodyLength = 50)
+    public List<Dictionary<string, object?>> ListEvents(DateTime startDate, DateTime endDate, string? account)
     {
         var events = new List<Dictionary<string, object?>>();
 
@@ -75,26 +75,26 @@ public class OutlookCalendarService : IDisposable
             var stores = ns.Stores;
             for (int i = 1; i <= stores.Count; i++)
             {
-                try { CollectEvents(stores.Item(i).GetDefaultFolder(OlFolderCalendar), startDate, endDate, events, bodyLength); }
+                try { CollectEvents(stores.Item(i).GetDefaultFolder(OlFolderCalendar), startDate, endDate, events); }
                 catch { /* Store has no calendar folder */ }
             }
             events.Sort((a, b) => string.Compare(a["start"]?.ToString(), b["start"]?.ToString(), StringComparison.Ordinal));
         }
         else
         {
-            CollectEvents(GetCalendarFolder(account), startDate, endDate, events, bodyLength);
+            CollectEvents(GetCalendarFolder(account), startDate, endDate, events);
         }
 
         return events;
     }
 
-    private void CollectEvents(dynamic folder, DateTime startDate, DateTime endDate, List<Dictionary<string, object?>> events, int bodyLength = 50)
+    private void CollectEvents(dynamic folder, DateTime startDate, DateTime endDate, List<Dictionary<string, object?>> events)
     {
         var restrictedItems = GetCalendarItemsInRange(folder, startDate, endDate);
         var item = restrictedItems.GetFirst();
         while (item != null)
         {
-            events.Add(AppointmentToDict(item, bodyLength: bodyLength));
+            events.Add(AppointmentToDict(item));
             item = restrictedItems.GetNext();
         }
     }
@@ -386,7 +386,7 @@ public class OutlookCalendarService : IDisposable
         return accounts;
     }
 
-    private Dictionary<string, object?> AppointmentToDict(dynamic appointment, int bodyLength = 0, bool includeAttendees = false)
+    private Dictionary<string, object?> AppointmentToDict(dynamic appointment, bool includeAttendees = false)
     {
         var dict = new Dictionary<string, object?>
         {
@@ -409,11 +409,7 @@ public class OutlookCalendarService : IDisposable
             _ => "Unknown"
         };
 
-        if (bodyLength > 0)
-        {
-            var fullBody = (string)appointment.Body;
-            dict["body"] = fullBody.Length <= bodyLength ? fullBody : fullBody[..bodyLength] + "...";
-        }
+        dict["body"] = (string)appointment.Body;
 
         if (includeAttendees && (int)appointment.MeetingStatus == OlMeeting)
         {
@@ -456,7 +452,7 @@ public class OutlookCalendarService : IDisposable
             throw new InvalidOperationException($"Event not found with ID: {eventId}");
         }
 
-        var result = AppointmentToDict(appointment, bodyLength: int.MaxValue, includeAttendees: true);
+        var result = AppointmentToDict(appointment, includeAttendees: true);
         Marshal.ReleaseComObject(appointment);
         return result;
     }
