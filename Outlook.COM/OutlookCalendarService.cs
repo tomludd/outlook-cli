@@ -65,7 +65,7 @@ public class OutlookCalendarService : IDisposable
         return GetStoreFolder(account, OlFolderCalendar);
     }
 
-    public List<Dictionary<string, object?>> ListEvents(DateTime startDate, DateTime endDate, string? account)
+    public List<Dictionary<string, object?>> ListEvents(DateTime startDate, DateTime endDate, string? account, int bodyLength = 50)
     {
         var events = new List<Dictionary<string, object?>>();
 
@@ -75,26 +75,26 @@ public class OutlookCalendarService : IDisposable
             var stores = ns.Stores;
             for (int i = 1; i <= stores.Count; i++)
             {
-                try { CollectEvents(stores.Item(i).GetDefaultFolder(OlFolderCalendar), startDate, endDate, events); }
+                try { CollectEvents(stores.Item(i).GetDefaultFolder(OlFolderCalendar), startDate, endDate, events, bodyLength); }
                 catch { /* Store has no calendar folder */ }
             }
             events.Sort((a, b) => string.Compare(a["start"]?.ToString(), b["start"]?.ToString(), StringComparison.Ordinal));
         }
         else
         {
-            CollectEvents(GetCalendarFolder(account), startDate, endDate, events);
+            CollectEvents(GetCalendarFolder(account), startDate, endDate, events, bodyLength);
         }
 
         return events;
     }
 
-    private void CollectEvents(dynamic folder, DateTime startDate, DateTime endDate, List<Dictionary<string, object?>> events)
+    private void CollectEvents(dynamic folder, DateTime startDate, DateTime endDate, List<Dictionary<string, object?>> events, int bodyLength = 50)
     {
         var restrictedItems = GetCalendarItemsInRange(folder, startDate, endDate);
         var item = restrictedItems.GetFirst();
         while (item != null)
         {
-            events.Add(AppointmentToDict(item, bodyLength: 50));
+            events.Add(AppointmentToDict(item, bodyLength: bodyLength));
             item = restrictedItems.GetNext();
         }
     }

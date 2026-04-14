@@ -1,4 +1,5 @@
 using System.CommandLine;
+using Outlook.COM;
 
 namespace Outlook.Cli;
 
@@ -20,6 +21,7 @@ public static class SyncCommand
         cmd.Options.Add(toOption);
         cmd.Options.Add(modeOption);
         cmd.Options.Add(outsideHoursOption);
+        cmd.Subcommands.Add(BuildPurge());
 
         cmd.SetAction(ctx =>
         {
@@ -99,6 +101,64 @@ public static class SyncCommand
                 : $"  Done. {summary.Created} created, {summary.Deleted} deleted.");
         });
 
+        return cmd;
+    }
+
+    private static Command BuildPurge()
+    {
+        var accountOpt = new Option<string>("--account") { Description = "Account to purge synced events from", Required = true };
+        var fromOpt    = new Option<string?>("--from") { Description = "Start date (yyyy-MM-dd). Defaults to 2 years ago." };
+        var toOpt      = new Option<string?>("--to")   { Description = "End date (yyyy-MM-dd). Defaults to 2 years from now." };
+
+        var cmd = new Command("purge", "Delete all synced/blocked events created by outlook sync from a calendar");
+        cmd.Options.Add(accountOpt);
+        cmd.Options.Add(fromOpt);
+        cmd.Options.Add(toOpt);
+        cmd.SetAction(ctx =>
+        {
+            var account = ctx.GetValue(accountOpt)!;
+            var fromStr = ctx.GetValue(fromOpt);
+            var toStr   = ctx.GetValue(toOpt);
+
+            var from = fromStr != null
+                ? DateTime.ParseExact(fromStr, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+                : DateTime.Today.AddYears(-2);
+            var to = toStr != null
+                ? DateTime.ParseExact(toStr, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
+                : DateTime.Today.AddYears(2);
+
+            using var svc = new OutlookCalendarService();
+            var events = svc.ListEvents(from, to, account, bodyLength: int.MaxValue);
+            var synced = events
+                .Where(e => e.TryGetValue("body", out var b) && b is string s && s.Contains("[outlook-sync:"))
+                .ToList();
+
+            Console.WriteLine();
+            Console.WriteLine($"  Account : {account}");
+            Console.WriteLine($"  Range   : {from:yyyy-MM-dd} to {to:yyyy-MM-dd}");
+            Console.WriteLine($"  Found   : {synced.Count} synced event(s) to delete");
+            Console.WriteLine();
+
+            int deleted = 0, errors = 0;
+            foreach (var ev in synced)
+            {
+                var id = (string?)ev["id"];
+                if (id == null) continue;
+                try
+                {
+                    svc.DeleteEvent(id, account);
+                    deleted++;
+                }
+                catch
+                {
+                    errors++;
+                }
+            }
+
+            Console.WriteLine(deleted == 0
+                ? "  Nothing to purge -- no synced events found."
+                : $"  Done. {deleted} deleted" + (errors > 0 ? $", {errors} errors." : "."));
+        });
         return cmd;
     }
 }
