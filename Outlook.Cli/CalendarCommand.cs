@@ -151,8 +151,16 @@ public static class CalendarCommand
             var id      = ctx.GetValue(idArg)!;
             var account = ctx.GetValue(accountOpt);
             using var svc = new OutlookCalendarService();
-            var result = svc.DeleteEvent(id, account);
-            Console.WriteLine(JsonSerializer.Serialize(new { success = result }, JsonOptions));
+            try
+            {
+                var result = svc.DeleteEvent(id, account);
+                Console.WriteLine(JsonSerializer.Serialize(new { success = result }, JsonOptions));
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.Exit(1);
+            }
         });
         return cmd;
     }
@@ -198,8 +206,16 @@ public static class CalendarCommand
             var id      = ctx.GetValue(idArg)!;
             var account = ctx.GetValue(accountOpt);
             using var svc = new OutlookCalendarService();
-            var status = svc.GetAttendeeStatus(id, account);
-            Console.WriteLine(JsonSerializer.Serialize(status, JsonOptions));
+            try
+            {
+                var status = svc.GetAttendeeStatus(id, account);
+                Console.WriteLine(JsonSerializer.Serialize(status, JsonOptions));
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.Exit(1);
+            }
         });
         return cmd;
     }

@@ -161,9 +161,14 @@ public class OutlookContactService : IDisposable
 
         contact.Save();
 
-        string entryId = contact.EntryID;
+        // Re-fetch after save: Outlook reassigns EntryID after first save to Exchange
+        string tempId = (string)contact.EntryID;
         Marshal.ReleaseComObject(contact);
-        return entryId;
+        var ns = GetNamespace();
+        dynamic saved = ns.GetItemFromID(tempId);
+        string stableId = (string)saved.EntryID;
+        Marshal.ReleaseComObject(saved);
+        return stableId;
     }
 
     public bool UpdateContact(string entryId, string? firstName, string? lastName,
@@ -209,8 +214,9 @@ public class OutlookContactService : IDisposable
             throw new InvalidOperationException($"Contact not found with ID: {entryId}");
         }
 
-        contact.Delete();
-        Marshal.ReleaseComObject(contact);
+        try { contact.Delete(); }
+        catch (System.Runtime.InteropServices.COMException) { /* item deleted but COM reports a move error — ignore */ }
+        finally { try { Marshal.ReleaseComObject(contact); } catch { } }
         return true;
     }
 

@@ -132,9 +132,14 @@ public class OutlookCalendarService : IDisposable
             appointment.Save();
         }
 
-        string entryId = appointment.EntryID;
+        // Re-fetch after save: Outlook reassigns EntryID after first save to Exchange
+        string tempId = (string)appointment.EntryID;
         Marshal.ReleaseComObject(appointment);
-        return entryId;
+        var ns = GetNamespace();
+        dynamic saved = ns.GetItemFromID(tempId);
+        string stableId = (string)saved.EntryID;
+        Marshal.ReleaseComObject(saved);
+        return stableId;
     }
 
     public bool UpdateEvent(string eventId, string? subject, DateTime? startDateTime, DateTime? endDateTime,
@@ -186,8 +191,9 @@ public class OutlookCalendarService : IDisposable
         if (appointment == null)
             throw new InvalidOperationException($"Event not found with ID: {eventId}");
 
-        appointment.Delete();
-        Marshal.ReleaseComObject(appointment);
+        try { appointment.Delete(); }
+        catch (System.Runtime.InteropServices.COMException) { /* item deleted but COM reports a move error — ignore */ }
+        finally { try { Marshal.ReleaseComObject(appointment); } catch { } }
         return true;
     }
 

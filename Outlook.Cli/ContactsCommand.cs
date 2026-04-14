@@ -68,8 +68,16 @@ public static class ContactsCommand
         {
             var id = ctx.GetValue(idArg)!;
             using var svc = new OutlookContactService();
-            var contact = svc.GetContact(id);
-            Console.WriteLine(JsonSerializer.Serialize(contact, JsonOptions));
+            try
+            {
+                var contact = svc.GetContact(id);
+                Console.WriteLine(JsonSerializer.Serialize(contact, JsonOptions));
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.Exit(1);
+            }
         });
         return cmd;
     }
@@ -156,8 +164,16 @@ public static class ContactsCommand
         {
             var id = ctx.GetValue(idArg)!;
             using var svc = new OutlookContactService();
-            var result = svc.DeleteContact(id);
-            Console.WriteLine(JsonSerializer.Serialize(new { success = result }, JsonOptions));
+            try
+            {
+                var result = svc.DeleteContact(id);
+                Console.WriteLine(JsonSerializer.Serialize(new { success = result }, JsonOptions));
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.Exit(1);
+            }
         });
         return cmd;
     }
