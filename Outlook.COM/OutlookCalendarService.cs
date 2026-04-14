@@ -100,7 +100,8 @@ public class OutlookCalendarService : IDisposable
     }
 
     public string CreateEvent(string subject, DateTime startDateTime, DateTime endDateTime,
-        string? location, string? body, bool isMeeting, string? attendees, string? account)
+        string? location, string? body, bool isMeeting, string? attendees, string? account,
+        bool reminderEnabled = true, int busyStatus = OlBusy)
     {
         var calendar = GetCalendarFolder(account);
         var appointment = calendar.Items.Add(OlAppointmentItem);
@@ -108,6 +109,8 @@ public class OutlookCalendarService : IDisposable
         appointment.Subject = subject;
         appointment.Start = startDateTime;
         appointment.End = endDateTime;
+        appointment.ReminderSet = reminderEnabled;
+        appointment.BusyStatus = busyStatus;
 
         if (!string.IsNullOrEmpty(location))
             appointment.Location = location;
