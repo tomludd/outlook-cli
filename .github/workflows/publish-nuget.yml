@@ -45,4 +45,5 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Push to NuGet
+      shell: bash
       run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_PUSH_APIKEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
