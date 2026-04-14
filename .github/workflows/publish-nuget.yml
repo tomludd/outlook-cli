@@ -26,33 +26,13 @@ jobs:
         echo "VERSION=$TAG_NAME" >> $GITHUB_OUTPUT
         echo "Extracted version: $TAG_NAME"
 
-    - name: Generate release notes from commits
-      id: release_notes
-      shell: bash
-      run: |
-        PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
-        if [ -z "$PREV_TAG" ]; then
-          NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges)
-        else
-          NOTES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --no-merges)
-        fi
-
-        NOTES="${NOTES//'%'/'%25'}"
-        NOTES="${NOTES//$'\n'/'%0A'}"
-        NOTES="${NOTES//$'\r'/'%0D'}"
-        echo "NOTES=$NOTES" >> $GITHUB_OUTPUT
-
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '10.0.x'
 
     - name: Pack
-      run: |
-        dotnet pack Outlook.Cli/Outlook.Cli.csproj -c Release -o ./nupkg `
-          /p:PackageVersion=${{ steps.get_version.outputs.VERSION }} `
-          "/p:PackageReleaseNotes=${{ steps.release_notes.outputs.NOTES }}"
+      run: dotnet pack Outlook.Cli/Outlook.Cli.csproj -c Release -o ./nupkg /p:PackageVersion=${{ steps.get_version.outputs.VERSION }}
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
