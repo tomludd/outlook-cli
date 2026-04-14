@@ -22,13 +22,13 @@ public static class EmailCommand
 
     private static Command BuildList()
     {
-        var folderOpt  = new Option<string?>("--folder",  "Folder: inbox, sent, drafts, outbox (default: inbox)");
-        var countOpt   = new Option<int>("--count",       "Number of emails (max 100)") { DefaultValueFactory = _ => 20 };
-        var subjectOpt = new Option<string?>("--subject", "Filter by subject");
-        var senderOpt  = new Option<string?>("--sender",  "Filter by sender email");
-        var accountOpt = new Option<string?>("--account", "Account display name (omit for all accounts)");
-        var afterOpt   = new Option<string?>("--after",   "Received on or after yyyy-MM-dd");
-        var beforeOpt  = new Option<string?>("--before",  "Received before yyyy-MM-dd");
+        var folderOpt  = new Option<string?>("--folder") { Description = "Folder: inbox, sent, drafts, outbox (default: inbox)" };
+        var countOpt   = new Option<int>("--count") { Description = "Number of emails (max 100)", DefaultValueFactory = _ => 20 };
+        var subjectOpt = new Option<string?>("--subject") { Description = "Filter by subject" };
+        var senderOpt  = new Option<string?>("--sender") { Description = "Filter by sender email" };
+        var accountOpt = new Option<string?>("--account") { Description = "Account display name (omit for all accounts)" };
+        var afterOpt   = new Option<string?>("--after") { Description = "Received on or after yyyy-MM-dd" };
+        var beforeOpt  = new Option<string?>("--before") { Description = "Received before yyyy-MM-dd" };
 
         var cmd = new Command("list", "List recent emails");
         cmd.Options.Add(folderOpt); cmd.Options.Add(countOpt); cmd.Options.Add(subjectOpt);
@@ -67,8 +67,8 @@ public static class EmailCommand
     private static Command BuildSearch()
     {
         var queryArg   = new Argument<string>("query") { Description = "Search keywords (subject, body, sender)" };
-        var maxOpt     = new Option<int>("--max",      "Maximum results (max 100)") { DefaultValueFactory = _ => 20 };
-        var accountOpt = new Option<string?>("--account", "Account display name (omit for all accounts)");
+        var maxOpt     = new Option<int>("--max") { Description = "Maximum results (max 100)", DefaultValueFactory = _ => 20 };
+        var accountOpt = new Option<string?>("--account") { Description = "Account display name (omit for all accounts)" };
 
         var cmd = new Command("search", "Search emails by keyword");
         cmd.Arguments.Add(queryArg);
@@ -87,15 +87,15 @@ public static class EmailCommand
 
     private static Command BuildSend()
     {
-        var toOpt          = new Option<string>("--to",          "Recipient email(s), semicolon-separated") { Required = true };
-        var subjectOpt     = new Option<string>("--subject",     "Email subject") { Required = true };
-        var bodyOpt        = new Option<string>("--body",        "Email body") { Required = true };
-        var ccOpt          = new Option<string?>("--cc",         "CC recipients, semicolon-separated");
-        var bccOpt         = new Option<string?>("--bcc",        "BCC recipients, semicolon-separated");
-        var htmlOpt        = new Option<bool>("--html",          "Body is HTML") { DefaultValueFactory = _ => false };
-        var importanceOpt  = new Option<string?>("--importance", "low, normal, high (default: normal)");
-        var attachmentsOpt = new Option<string?>("--attach",     "File paths to attach, semicolon-separated");
-        var accountOpt     = new Option<string?>("--account",    "Account display name to send from");
+        var toOpt          = new Option<string>("--to") { Description = "Recipient email(s), semicolon-separated", Required = true };
+        var subjectOpt     = new Option<string>("--subject") { Description = "Email subject", Required = true };
+        var bodyOpt        = new Option<string>("--body") { Description = "Email body", Required = true };
+        var ccOpt          = new Option<string?>("--cc") { Description = "CC recipients, semicolon-separated" };
+        var bccOpt         = new Option<string?>("--bcc") { Description = "BCC recipients, semicolon-separated" };
+        var htmlOpt        = new Option<bool>("--html") { Description = "Body is HTML", DefaultValueFactory = _ => false };
+        var importanceOpt  = new Option<string?>("--importance") { Description = "low, normal, high (default: normal)" };
+        var attachmentsOpt = new Option<string?>("--attach") { Description = "File paths to attach, semicolon-separated" };
+        var accountOpt     = new Option<string?>("--account") { Description = "Account display name to send from" };
 
         var cmd = new Command("send", "Send a new email");
         cmd.Options.Add(toOpt); cmd.Options.Add(subjectOpt); cmd.Options.Add(bodyOpt);
@@ -125,8 +125,8 @@ public static class EmailCommand
     private static Command BuildReply()
     {
         var idArg   = new Argument<string>("id") { Description = "Email ID to reply to" };
-        var bodyOpt = new Option<string>("--body", "Reply body text") { Required = true };
-        var allOpt  = new Option<bool>("--all",   "Reply to all recipients") { DefaultValueFactory = _ => false };
+        var bodyOpt = new Option<string>("--body") { Description = "Reply body text", Required = true };
+        var allOpt  = new Option<bool>("--all") { Description = "Reply to all recipients", DefaultValueFactory = _ => false };
 
         var cmd = new Command("reply", "Reply to an email");
         cmd.Arguments.Add(idArg);
@@ -146,8 +146,8 @@ public static class EmailCommand
     private static Command BuildForward()
     {
         var idArg   = new Argument<string>("id") { Description = "Email ID to forward" };
-        var toOpt   = new Option<string>("--to",   "Recipient email(s), semicolon-separated") { Required = true };
-        var bodyOpt = new Option<string?>("--body", "Additional text to prepend");
+        var toOpt   = new Option<string>("--to") { Description = "Recipient email(s), semicolon-separated", Required = true };
+        var bodyOpt = new Option<string?>("--body") { Description = "Additional text to prepend" };
 
         var cmd = new Command("forward", "Forward an email");
         cmd.Arguments.Add(idArg);
@@ -164,4 +164,6 @@ public static class EmailCommand
         return cmd;
     }
 }
+
+
 

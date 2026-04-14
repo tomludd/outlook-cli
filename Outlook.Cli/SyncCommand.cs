@@ -6,14 +6,12 @@ public static class SyncCommand
 {
     public static Command Build()
     {
-        var sourceOption = new Option<string>("--source", "Source account name (sync FROM this calendar)") { Required = true };
-        var targetOption = new Option<string>("--target", "Target account name (sync TO this calendar)") { Required = true };
-        var fromOption   = new Option<string?>("--from",  "Start date (yyyy-MM-dd). Defaults to today.");
-        var toOption     = new Option<string?>("--to",    "End date (yyyy-MM-dd). Defaults to today + 90 days.");
-        var modeOption   = new Option<string>("--mode",   "Sync mode: 'block' (anonymous busy blocks) or 'copy' (copies title and description).")
-                              { DefaultValueFactory = _ => "block" };
-        var outsideHoursOption = new Option<bool>("--outside-hours", "Only sync events outside working hours (07:00-18:00).")
-                              { DefaultValueFactory = _ => false };
+        var sourceOption = new Option<string>("--source") { Description = "Source account name (sync FROM this calendar)", Required = true };
+        var targetOption = new Option<string>("--target") { Description = "Target account name (sync TO this calendar)", Required = true };
+        var fromOption   = new Option<string?>("--from") { Description = "Start date (yyyy-MM-dd). Defaults to today." };
+        var toOption     = new Option<string?>("--to") { Description = "End date (yyyy-MM-dd). Defaults to today + 90 days." };
+        var modeOption   = new Option<string>("--mode") { Description = "Sync mode: 'block' (anonymous busy blocks) or 'copy' (copies title and description).", DefaultValueFactory = _ => "block" };
+        var outsideHoursOption = new Option<bool>("--outside-hours") { Description = "Only sync events outside working hours (07:00-18:00).", DefaultValueFactory = _ => false };
 
         var cmd = new Command("sync", "Sync events from one calendar to another");
         cmd.Options.Add(sourceOption);
@@ -104,4 +102,6 @@ public static class SyncCommand
         return cmd;
     }
 }
+
+
 

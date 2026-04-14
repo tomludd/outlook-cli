@@ -27,7 +27,7 @@ public static class CalendarCommand
     {
         var fromArg    = new Argument<string>("from") { Description = "Start date yyyy-MM-dd" };
         var toArg      = new Argument<string>("to")   { Description = "End date yyyy-MM-dd" };
-        var accountOpt = new Option<string?>("--account", "Account display name (omit for all)");
+        var accountOpt = new Option<string?>("--account") { Description = "Account display name (omit for all)" };
 
         var cmd = new Command("list", "List calendar events in a date range");
         cmd.Arguments.Add(fromArg); cmd.Arguments.Add(toArg); cmd.Options.Add(accountOpt);
@@ -60,16 +60,16 @@ public static class CalendarCommand
 
     private static Command BuildCreate()
     {
-        var subjectOpt   = new Option<string>("--subject",    "Event title") { Required = true };
-        var startDateOpt = new Option<string>("--start-date", "Start date yyyy-MM-dd") { Required = true };
-        var startTimeOpt = new Option<string>("--start-time", "Start time HH:mm") { Required = true };
-        var endDateOpt   = new Option<string?>("--end-date",  "End date yyyy-MM-dd (default: same as start)");
-        var endTimeOpt   = new Option<string?>("--end-time",  "End time HH:mm (default: 30 min after start)");
-        var locationOpt  = new Option<string?>("--location",  "Event location");
-        var bodyOpt      = new Option<string?>("--body",      "Event description");
-        var meetingOpt   = new Option<bool>("--meeting",      "Create as meeting with attendees") { DefaultValueFactory = _ => false };
-        var attendeesOpt = new Option<string?>("--attendees", "Attendee emails, semicolon-separated");
-        var accountOpt   = new Option<string?>("--account",   "Account display name");
+        var subjectOpt   = new Option<string>("--subject") { Description = "Event title", Required = true };
+        var startDateOpt = new Option<string>("--start-date") { Description = "Start date yyyy-MM-dd", Required = true };
+        var startTimeOpt = new Option<string>("--start-time") { Description = "Start time HH:mm", Required = true };
+        var endDateOpt   = new Option<string?>("--end-date") { Description = "End date yyyy-MM-dd (default: same as start)" };
+        var endTimeOpt   = new Option<string?>("--end-time") { Description = "End time HH:mm (default: 30 min after start)" };
+        var locationOpt  = new Option<string?>("--location") { Description = "Event location" };
+        var bodyOpt      = new Option<string?>("--body") { Description = "Event description" };
+        var meetingOpt   = new Option<bool>("--meeting") { Description = "Create as meeting with attendees", DefaultValueFactory = _ => false };
+        var attendeesOpt = new Option<string?>("--attendees") { Description = "Attendee emails, semicolon-separated" };
+        var accountOpt   = new Option<string?>("--account") { Description = "Account display name" };
 
         var cmd = new Command("create", "Create a calendar event");
         cmd.Options.Add(subjectOpt); cmd.Options.Add(startDateOpt); cmd.Options.Add(startTimeOpt);
@@ -101,14 +101,14 @@ public static class CalendarCommand
     private static Command BuildUpdate()
     {
         var idArg        = new Argument<string>("id") { Description = "Event ID to update" };
-        var subjectOpt   = new Option<string?>("--subject",    "New title");
-        var startDateOpt = new Option<string?>("--start-date", "New start date yyyy-MM-dd");
-        var startTimeOpt = new Option<string?>("--start-time", "New start time HH:mm");
-        var endDateOpt   = new Option<string?>("--end-date",   "New end date yyyy-MM-dd");
-        var endTimeOpt   = new Option<string?>("--end-time",   "New end time HH:mm");
-        var locationOpt  = new Option<string?>("--location",   "New location");
-        var bodyOpt      = new Option<string?>("--body",       "New description");
-        var accountOpt   = new Option<string?>("--account",    "Account display name");
+        var subjectOpt   = new Option<string?>("--subject") { Description = "New title" };
+        var startDateOpt = new Option<string?>("--start-date") { Description = "New start date yyyy-MM-dd" };
+        var startTimeOpt = new Option<string?>("--start-time") { Description = "New start time HH:mm" };
+        var endDateOpt   = new Option<string?>("--end-date") { Description = "New end date yyyy-MM-dd" };
+        var endTimeOpt   = new Option<string?>("--end-time") { Description = "New end time HH:mm" };
+        var locationOpt  = new Option<string?>("--location") { Description = "New location" };
+        var bodyOpt      = new Option<string?>("--body") { Description = "New description" };
+        var accountOpt   = new Option<string?>("--account") { Description = "Account display name" };
 
         var cmd = new Command("update", "Update an existing calendar event");
         cmd.Arguments.Add(idArg);
@@ -142,7 +142,7 @@ public static class CalendarCommand
     private static Command BuildDelete()
     {
         var idArg      = new Argument<string>("id") { Description = "Event ID to delete" };
-        var accountOpt = new Option<string?>("--account", "Account display name");
+        var accountOpt = new Option<string?>("--account") { Description = "Account display name" };
 
         var cmd = new Command("delete", "Delete a calendar event");
         cmd.Arguments.Add(idArg); cmd.Options.Add(accountOpt);
@@ -160,11 +160,11 @@ public static class CalendarCommand
     private static Command BuildFreeSlots()
     {
         var fromArg      = new Argument<string>("from") { Description = "Start date yyyy-MM-dd" };
-        var toOpt        = new Option<string?>("--to",         "End date yyyy-MM-dd (default: 7 days from start)");
-        var durationOpt  = new Option<int>("--duration",       "Slot duration in minutes") { DefaultValueFactory = _ => 30 };
-        var workStartOpt = new Option<int>("--work-start",     "Work day start hour (0-23)") { DefaultValueFactory = _ => 9 };
-        var workEndOpt   = new Option<int>("--work-end",       "Work day end hour (0-23)") { DefaultValueFactory = _ => 17 };
-        var accountOpt   = new Option<string?>("--account",    "Account display name (omit for all)");
+        var toOpt        = new Option<string?>("--to") { Description = "End date yyyy-MM-dd (default: 7 days from start)" };
+        var durationOpt  = new Option<int>("--duration") { Description = "Slot duration in minutes", DefaultValueFactory = _ => 30 };
+        var workStartOpt = new Option<int>("--work-start") { Description = "Work day start hour (0-23)", DefaultValueFactory = _ => 9 };
+        var workEndOpt   = new Option<int>("--work-end") { Description = "Work day end hour (0-23)", DefaultValueFactory = _ => 17 };
+        var accountOpt   = new Option<string?>("--account") { Description = "Account display name (omit for all)" };
 
         var cmd = new Command("free-slots", "Find available time slots for scheduling");
         cmd.Arguments.Add(fromArg);
@@ -189,7 +189,7 @@ public static class CalendarCommand
     private static Command BuildAttendees()
     {
         var idArg      = new Argument<string>("id") { Description = "Event ID" };
-        var accountOpt = new Option<string?>("--account", "Account display name");
+        var accountOpt = new Option<string?>("--account") { Description = "Account display name" };
 
         var cmd = new Command("attendees", "Get attendee response status for a meeting");
         cmd.Arguments.Add(idArg); cmd.Options.Add(accountOpt);
@@ -222,5 +222,7 @@ public static class CalendarCommand
     private static DateTime ParseDateTime(string date, string time) =>
         DateTime.ParseExact($"{date} {time}", "yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
 }
+
+
 
 

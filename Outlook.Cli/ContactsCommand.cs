@@ -22,8 +22,8 @@ public static class ContactsCommand
 
     private static Command BuildList()
     {
-        var countOpt   = new Option<int>("--count",   "Number of contacts (max 500)") { DefaultValueFactory = _ => 50 };
-        var accountOpt = new Option<string?>("--account", "Account display name (omit for all)");
+        var countOpt   = new Option<int>("--count") { Description = "Number of contacts (max 500)", DefaultValueFactory = _ => 50 };
+        var accountOpt = new Option<string?>("--account") { Description = "Account display name (omit for all)" };
 
         var cmd = new Command("list", "List contacts");
         cmd.Options.Add(countOpt); cmd.Options.Add(accountOpt);
@@ -41,8 +41,8 @@ public static class ContactsCommand
     private static Command BuildSearch()
     {
         var queryArg   = new Argument<string>("query") { Description = "Search by name, email, or company" };
-        var maxOpt     = new Option<int>("--max",      "Maximum results (max 100)") { DefaultValueFactory = _ => 20 };
-        var accountOpt = new Option<string?>("--account", "Account display name (omit for all)");
+        var maxOpt     = new Option<int>("--max") { Description = "Maximum results (max 100)", DefaultValueFactory = _ => 20 };
+        var accountOpt = new Option<string?>("--account") { Description = "Account display name (omit for all)" };
 
         var cmd = new Command("search", "Search contacts");
         cmd.Arguments.Add(queryArg);
@@ -76,16 +76,16 @@ public static class ContactsCommand
 
     private static Command BuildCreate()
     {
-        var firstOpt   = new Option<string?>("--first",   "First name");
-        var lastOpt    = new Option<string?>("--last",    "Last name");
-        var emailOpt   = new Option<string?>("--email",   "Email address");
-        var phoneOpt   = new Option<string?>("--phone",   "Business phone");
-        var mobileOpt  = new Option<string?>("--mobile",  "Mobile phone");
-        var companyOpt = new Option<string?>("--company", "Company name");
-        var titleOpt   = new Option<string?>("--title",   "Job title");
-        var addrOpt    = new Option<string?>("--address", "Business address");
-        var notesOpt   = new Option<string?>("--notes",   "Notes");
-        var accountOpt = new Option<string?>("--account", "Account display name");
+        var firstOpt   = new Option<string?>("--first") { Description = "First name" };
+        var lastOpt    = new Option<string?>("--last") { Description = "Last name" };
+        var emailOpt   = new Option<string?>("--email") { Description = "Email address" };
+        var phoneOpt   = new Option<string?>("--phone") { Description = "Business phone" };
+        var mobileOpt  = new Option<string?>("--mobile") { Description = "Mobile phone" };
+        var companyOpt = new Option<string?>("--company") { Description = "Company name" };
+        var titleOpt   = new Option<string?>("--title") { Description = "Job title" };
+        var addrOpt    = new Option<string?>("--address") { Description = "Business address" };
+        var notesOpt   = new Option<string?>("--notes") { Description = "Notes" };
+        var accountOpt = new Option<string?>("--account") { Description = "Account display name" };
 
         var cmd = new Command("create", "Create a new contact");
         cmd.Options.Add(firstOpt); cmd.Options.Add(lastOpt); cmd.Options.Add(emailOpt);
@@ -113,15 +113,15 @@ public static class ContactsCommand
     private static Command BuildUpdate()
     {
         var idArg      = new Argument<string>("id") { Description = "Contact ID to update" };
-        var firstOpt   = new Option<string?>("--first",   "First name");
-        var lastOpt    = new Option<string?>("--last",    "Last name");
-        var emailOpt   = new Option<string?>("--email",   "Email address");
-        var phoneOpt   = new Option<string?>("--phone",   "Business phone");
-        var mobileOpt  = new Option<string?>("--mobile",  "Mobile phone");
-        var companyOpt = new Option<string?>("--company", "Company name");
-        var titleOpt   = new Option<string?>("--title",   "Job title");
-        var addrOpt    = new Option<string?>("--address", "Business address");
-        var notesOpt   = new Option<string?>("--notes",   "Notes");
+        var firstOpt   = new Option<string?>("--first") { Description = "First name" };
+        var lastOpt    = new Option<string?>("--last") { Description = "Last name" };
+        var emailOpt   = new Option<string?>("--email") { Description = "Email address" };
+        var phoneOpt   = new Option<string?>("--phone") { Description = "Business phone" };
+        var mobileOpt  = new Option<string?>("--mobile") { Description = "Mobile phone" };
+        var companyOpt = new Option<string?>("--company") { Description = "Company name" };
+        var titleOpt   = new Option<string?>("--title") { Description = "Job title" };
+        var addrOpt    = new Option<string?>("--address") { Description = "Business address" };
+        var notesOpt   = new Option<string?>("--notes") { Description = "Notes" };
 
         var cmd = new Command("update", "Update an existing contact");
         cmd.Arguments.Add(idArg);
@@ -162,4 +162,6 @@ public static class ContactsCommand
         return cmd;
     }
 }
+
+
 
