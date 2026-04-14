@@ -8,7 +8,7 @@ public static class AccountsCommand
     public static Command Build()
     {
         var cmd = new Command("accounts", "List available Outlook accounts");
-        cmd.SetHandler(() =>
+        cmd.SetAction(_ =>
         {
             try
             {
@@ -35,3 +35,4 @@ public static class AccountsCommand
         return cmd;
     }
 }
+

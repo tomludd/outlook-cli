@@ -6,43 +6,32 @@ public static class SyncCommand
 {
     public static Command Build()
     {
-        var sourceOption = new Option<string>(
-            name: "--source",
-            description: "Source account name (sync FROM this calendar)")
-        { IsRequired = true };
+        var sourceOption = new Option<string>("--source", "Source account name (sync FROM this calendar)") { Required = true };
+        var targetOption = new Option<string>("--target", "Target account name (sync TO this calendar)") { Required = true };
+        var fromOption   = new Option<string?>("--from",  "Start date (yyyy-MM-dd). Defaults to today.");
+        var toOption     = new Option<string?>("--to",    "End date (yyyy-MM-dd). Defaults to today + 90 days.");
+        var modeOption   = new Option<string>("--mode",   "Sync mode: 'block' (anonymous busy blocks) or 'copy' (copies title and description).")
+                              { DefaultValueFactory = _ => "block" };
+        var outsideHoursOption = new Option<bool>("--outside-hours", "Only sync events outside working hours (07:00-18:00).")
+                              { DefaultValueFactory = _ => false };
 
-        var targetOption = new Option<string>(
-            name: "--target",
-            description: "Target account name (sync TO this calendar)")
-        { IsRequired = true };
+        var cmd = new Command("sync", "Sync events from one calendar to another");
+        cmd.Options.Add(sourceOption);
+        cmd.Options.Add(targetOption);
+        cmd.Options.Add(fromOption);
+        cmd.Options.Add(toOption);
+        cmd.Options.Add(modeOption);
+        cmd.Options.Add(outsideHoursOption);
 
-        var fromOption = new Option<string?>(
-            name: "--from",
-            description: "Start date (yyyy-MM-dd). Defaults to today.",
-            getDefaultValue: () => null);
-
-        var toOption = new Option<string?>(
-            name: "--to",
-            description: "End date (yyyy-MM-dd). Defaults to today + 90 days.",
-            getDefaultValue: () => null);
-
-        var modeOption = new Option<string>(
-            name: "--mode",
-            description: "Sync mode: 'block' (anonymous busy blocks) or 'copy' (copies title and description).",
-            getDefaultValue: () => "block");
-
-        var outsideHoursOption = new Option<bool>(
-            name: "--outside-hours",
-            description: "Only sync events that occur outside working hours (07:00–18:00).",
-            getDefaultValue: () => false);
-
-        var cmd = new Command("sync", "Sync events from one calendar to another")
+        cmd.SetAction(ctx =>
         {
-            sourceOption, targetOption, fromOption, toOption, modeOption, outsideHoursOption
-        };
+            var source       = ctx.GetValue(sourceOption)!;
+            var target       = ctx.GetValue(targetOption)!;
+            var from         = ctx.GetValue(fromOption);
+            var to           = ctx.GetValue(toOption);
+            var modeStr      = ctx.GetValue(modeOption)!;
+            var outsideHours = ctx.GetValue(outsideHoursOption);
 
-        cmd.SetHandler((string source, string target, string? from, string? to, string modeStr, bool outsideHours) =>
-        {
             DateTime? fromDate = null;
             DateTime? toDate = null;
 
@@ -86,32 +75,33 @@ public static class SyncCommand
             }
 
             var effectiveFrom = (fromDate ?? DateTime.Today).Date;
-            var effectiveTo = (toDate ?? DateTime.Today.AddDays(90)).Date;
+            var effectiveTo   = (toDate ?? DateTime.Today.AddDays(90)).Date;
 
-            var modeLabel = mode == SyncMode.Copy ? "copy (title + description)" : "block (anonymous busy)";
-            var filterLabel = outsideHours ? " · outside working hours only" : string.Empty;
+            var modeLabel   = mode == SyncMode.Copy ? "copy (title + description)" : "block (anonymous busy)";
+            var filterLabel = outsideHours ? " * outside working hours only" : string.Empty;
 
             Console.WriteLine();
             Console.WriteLine($"  Source  : {source}");
             Console.WriteLine($"  Target  : {target}");
-            Console.WriteLine($"  Range   : {effectiveFrom:yyyy-MM-dd} → {effectiveTo:yyyy-MM-dd}");
+            Console.WriteLine($"  Range   : {effectiveFrom:yyyy-MM-dd} to {effectiveTo:yyyy-MM-dd}");
             Console.WriteLine($"  Mode    : {modeLabel}{filterLabel}");
             Console.WriteLine();
 
-            var svc = new CalendarSyncService();
+            var svc     = new CalendarSyncService();
             var summary = svc.RunSync(source, target, effectiveFrom, effectiveTo, mode, outsideHours);
 
-            Console.WriteLine($"  Created : {summary.Created}");
-            Console.WriteLine($"  Deleted : {summary.Deleted}");
+            Console.WriteLine($"  Created  : {summary.Created}");
+            Console.WriteLine($"  Deleted  : {summary.Deleted}");
             Console.WriteLine($"  Unchanged: {summary.Skipped}");
             if (summary.Errors > 0)
-                Console.WriteLine($"  Errors  : {summary.Errors}");
+                Console.WriteLine($"  Errors   : {summary.Errors}");
             Console.WriteLine();
             Console.WriteLine(summary.Created == 0 && summary.Deleted == 0
-                ? "  Nothing to do — already in sync."
+                ? "  Nothing to do -- already in sync."
                 : $"  Done. {summary.Created} created, {summary.Deleted} deleted.");
-        }, sourceOption, targetOption, fromOption, toOption, modeOption, outsideHoursOption);
+        });
 
         return cmd;
     }
 }
+
