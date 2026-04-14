@@ -10,12 +10,17 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>outlook</ToolCommandName>
     <PackageId>outlook-cli</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Description>CLI tool for Outlook: calendar sync, email, calendar events, and contacts</Description>
+    <PackageReadmeFile>readme.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="System.CommandLine" Version="2.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="readme.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>

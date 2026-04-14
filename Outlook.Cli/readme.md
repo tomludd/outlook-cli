@@ -2,11 +2,11 @@
 
 A global .NET CLI tool for Microsoft Outlook on Windows. Manage email, calendar events, and contacts directly from the terminal, and sync busy time between multiple Outlook accounts.
 
-> Requires Windows with Microsoft Outlook installed and running. All output is JSON.
+> Communicates with Outlook via the **COM API** — requires Windows with Microsoft Outlook installed and running. All output is JSON.
 
-## Features
+## ✨ Features
 
-### Email
+### 📧 Email
 
 ```powershell
 outlook email list [--folder inbox|sent|drafts|outbox] [--count 20] [--subject <filter>] [--sender <email>] [--account <name>] [--after yyyy-MM-dd] [--before yyyy-MM-dd]
@@ -17,7 +17,7 @@ outlook email reply <id> --body <text> [--all]
 outlook email forward <id> --to <email> [--body <text>]
 ```
 
-### Calendar
+### 📅 Calendar
 
 ```powershell
 outlook calendar list <yyyy-MM-dd> <yyyy-MM-dd> [--account <name>]
@@ -30,7 +30,7 @@ outlook calendar attendees <id> [--account <name>]
 outlook calendar calendars
 ```
 
-### Contacts
+### 👤 Contacts
 
 ```powershell
 outlook contacts list [--count 50] [--account <name>]
@@ -41,7 +41,7 @@ outlook contacts update <id> [--first <name>] [--last <name>] [--email <email>] 
 outlook contacts delete <id>
 ```
 
-### Calendar sync
+### 🔄 Calendar sync
 
 Syncs busy time between Outlook calendars. Blocking events are tagged with a hidden marker and never re-synced, preventing cascading blocks.
 
@@ -67,7 +67,7 @@ outlook sync --source "me@personal.com" --target "work@company.com"
 outlook sync --source "work@company.com" --target "me@personal.com" --mode copy --outside-hours
 ```
 
-### Accounts
+### 🏦 Accounts
 
 List account display names for use with `--account`:
 
@@ -77,7 +77,7 @@ outlook accounts
 
 ---
 
-## Install
+## 📦 Install
 
 ### From NuGet.org
 
@@ -98,47 +98,10 @@ dotnet pack Outlook.Cli/Outlook.Cli.csproj -c Release -o nupkg
 dotnet tool install --global outlook-cli --add-source ./nupkg
 ```
 
+### 🗑️ Uninstall
+
+```powershell
+dotnet tool uninstall --global outlook-cli
+```
+
 ---
-
-## Development
-
-### Prerequisites
-
-- Windows, .NET 10.0 SDK
-- Microsoft Outlook desktop client installed and running
-
-### Build
-
-```powershell
-dotnet build
-```
-
-### Pack and update the local install
-
-> Bump `<Version>` in `Outlook.Cli.csproj` before each update — `dotnet tool update` requires a higher version.
-
-```powershell
-dotnet pack Outlook.Cli/Outlook.Cli.csproj -c Release -o nupkg
-dotnet tool update --global outlook-cli --add-source ./nupkg
-```
-
-### Project layout
-
-| File | Purpose |
-|------|---------|
-| `Program.cs` | Entry point, command registration |
-| `AccountsCommand.cs` | `accounts` command |
-| `EmailCommand.cs` | `email` subcommands |
-| `CalendarCommand.cs` | `calendar` subcommands |
-| `ContactsCommand.cs` | `contacts` subcommands |
-| `SyncCommand.cs` | `sync` command |
-| `CalendarSyncService.cs` | Stateless sync logic |
-outlook sync --source "work@company.com" --target "me@personal.com"
-
-# Both-ways sync for a specific day
-outlook sync --source "work@company.com" --target "me@personal.com" --from 2026-04-14 --to 2026-04-14
-outlook sync --source "me@personal.com" --target "work@company.com" --from 2026-04-14 --to 2026-04-14
-
-# Copy outside-hours events (with title + description) to personal calendar
-outlook sync --source "work@company.com" --target "me@personal.com" --mode copy --outside-hours
-```
