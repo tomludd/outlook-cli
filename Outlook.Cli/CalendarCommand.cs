@@ -25,19 +25,28 @@ public static class CalendarCommand
 
     private static Command BuildList()
     {
-        var fromArg    = new Argument<string>("from") { Description = "Start date yyyy-MM-dd" };
-        var toArg      = new Argument<string>("to")   { Description = "End date yyyy-MM-dd" };
-        var accountOpt = new Option<string?>("--account") { Description = "Account display name (omit for all)" };
+        var fromArg          = new Argument<string>("from") { Description = "Start date yyyy-MM-dd" };
+        var toArg            = new Argument<string>("to")   { Description = "End date yyyy-MM-dd" };
+        var accountOpt       = new Option<string?>("--account") { Description = "Account display name (omit for all)" };
+        var includeBlockedOpt = new Option<bool>("--include-blocked") { Description = "Include synced/blocked events created by outlook sync", DefaultValueFactory = _ => false };
 
         var cmd = new Command("list", "List calendar events in a date range");
-        cmd.Arguments.Add(fromArg); cmd.Arguments.Add(toArg); cmd.Options.Add(accountOpt);
+        cmd.Arguments.Add(fromArg); cmd.Arguments.Add(toArg); cmd.Options.Add(accountOpt); cmd.Options.Add(includeBlockedOpt);
         cmd.SetAction(ctx =>
         {
-            var start   = ParseDate(ctx.GetValue(fromArg)!);
-            var end     = ParseDate(ctx.GetValue(toArg)!);
-            var account = ctx.GetValue(accountOpt);
+            var start          = ParseDate(ctx.GetValue(fromArg)!);
+            var end            = ParseDate(ctx.GetValue(toArg)!);
+            var account        = ctx.GetValue(accountOpt);
+            var includeBlocked = ctx.GetValue(includeBlockedOpt);
             using var svc = new OutlookCalendarService();
-            var events = svc.ListEvents(start, end, account);
+            var events = svc.ListEvents(start, end, account, bodyLength: includeBlocked ? 50 : 200);
+            if (!includeBlocked)
+                events = events.Where(e => !e.TryGetValue("body", out var b) || b is not string s || !s.Contains("[outlook-sync:")).ToList();
+            // Trim body back to 50 chars for display consistency
+            if (!includeBlocked)
+                foreach (var ev in events)
+                    if (ev.TryGetValue("body", out var b) && b is string s && s.Length > 50)
+                        ev["body"] = s[..50] + "...";
             Console.WriteLine(JsonSerializer.Serialize(events, JsonOptions));
         });
         return cmd;
