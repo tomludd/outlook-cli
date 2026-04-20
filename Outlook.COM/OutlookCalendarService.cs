@@ -397,7 +397,8 @@ public class OutlookCalendarService : IDisposable
             ["location"] = (string)appointment.Location,
             ["organizer"] = (string)appointment.Organizer,
             ["isRecurring"] = (bool)appointment.IsRecurring,
-            ["isMeeting"] = (int)appointment.MeetingStatus == OlMeeting
+            ["isMeeting"] = (int)appointment.MeetingStatus == OlMeeting,
+            ["responseRequested"] = (bool)appointment.ResponseRequested
         };
 
         dict["busyStatus"] = (int)appointment.BusyStatus switch
@@ -406,6 +407,15 @@ public class OutlookCalendarService : IDisposable
             OlTentative => "Tentative",
             OlFree => "Free",
             OlOutOfOffice => "Out of Office",
+            _ => "Unknown"
+        };
+
+        dict["responseStatus"] = (int)appointment.ResponseStatus switch
+        {
+            OlResponseAccepted => "Accepted",
+            OlResponseDeclined => "Declined",
+            OlResponseTentative => "Tentative",
+            OlResponseNotResponded => "Not Responded",
             _ => "Unknown"
         };
 
