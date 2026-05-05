@@ -67,6 +67,59 @@ public class OutlookCalendarService : IDisposable
         return GetStoreFolder(account, OlFolderCalendar);
     }
 
+    /// <summary>
+    /// Returns the SMTP address for a store by matching it to a MAPI account via DeliveryStore.
+    /// Falls back to null if no match is found.
+    /// </summary>
+    private string? GetSmtpAddressForStore(dynamic ns, dynamic store)
+    {
+        // If the store's DisplayName is already an SMTP address, use it directly.
+        try
+        {
+            var displayName = (string)store.DisplayName;
+            if (!string.IsNullOrEmpty(displayName) && displayName.Contains('@'))
+                return displayName;
+        }
+        catch { }
+
+        // For the primary Exchange mailbox (ExchangeStoreType == 1), resolve via CurrentUser.
+        try
+        {
+            if ((int)store.ExchangeStoreType == 1)
+            {
+                var exchUser = ns.CurrentUser.AddressEntry.GetExchangeUser();
+                if (exchUser != null)
+                {
+                    var smtp = (string)exchUser.PrimarySmtpAddress;
+                    if (!string.IsNullOrEmpty(smtp)) return smtp;
+                }
+            }
+        }
+        catch { }
+
+        // Otherwise try matching via ns.Accounts DeliveryStore.
+        try
+        {
+            var storeId = (string)store.StoreID;
+            var accounts = ns.Accounts;
+            for (int i = 1; i <= (int)accounts.Count; i++)
+            {
+                try
+                {
+                    var acct = accounts.Item(i);
+                    dynamic? deliveryStore = null;
+                    try { deliveryStore = acct.DeliveryStore; } catch { }
+                    if (deliveryStore is null) continue;
+                    if (string.Equals((string)deliveryStore.StoreID, storeId, StringComparison.OrdinalIgnoreCase))
+                        return (string)acct.SmtpAddress;
+                }
+                catch { }
+            }
+        }
+        catch { }
+        return null;
+    }
+
     public List<Dictionary<string, object?>> ListEvents(DateTime startDate, DateTime endDate, string? account)
     {
         var events = new List<Dictionary<string, object?>>();
@@ -77,7 +130,12 @@ public class OutlookCalendarService : IDisposable
             var stores = ns.Stores;
             for (int i = 1; i <= stores.Count; i++)
             {
-                try { CollectEvents(stores.Item(i).GetDefaultFolder(OlFolderCalendar), startDate, endDate, events); }
+                try
+                {
+                    var store = stores.Item(i);
+                    var smtpAddress = GetSmtpAddressForStore(ns, store);
+                    CollectEvents(store.GetDefaultFolder(OlFolderCalendar), startDate, endDate, events, smtpAddress);
+                }
                 catch { /* Store has no calendar folder */ }
             }
             events.Sort((a, b) => string.Compare(a["start"]?.ToString(), b["start"]?.ToString(), StringComparison.Ordinal));
@@ -90,13 +148,15 @@ public class OutlookCalendarService : IDisposable
         return events;
     }
 
-    private void CollectEvents(dynamic folder, DateTime startDate, DateTime endDate, List<Dictionary<string, object?>> events)
+    private void CollectEvents(dynamic folder, DateTime startDate, DateTime endDate, List<Dictionary<string, object?>> events, string? accountName = null)
     {
         var restrictedItems = GetCalendarItemsInRange(folder, startDate, endDate);
         var item = restrictedItems.GetFirst();
         while (item != null)
         {
-            events.Add(AppointmentToDict(item));
+            var dict = AppointmentToDict(item);
+            if (accountName is not null) dict["account"] = accountName;
+            events.Add(dict);
             item = restrictedItems.GetNext();
         }
     }
@@ -468,6 +528,35 @@ public class OutlookCalendarService : IDisposable
         var result = AppointmentToDict(appointment, includeAttendees: true);
         Marshal.ReleaseComObject(appointment);
         return result;
+    }
+
+    public void RespondToMeeting(string eventId, int responseType)
+    {
+        var ns = GetNamespace();
+        dynamic appointment;
+        try
+        {
+            appointment = ns.GetItemFromID(eventId);
+        }
+        catch
+        {
+            throw new InvalidOperationException($"Event not found with ID: {eventId}");
+        }
+
+        try
+        {
+            dynamic? responseItem = appointment.Respond(responseType, true, false);
+            if (responseItem != null)
+            {
+                try { responseItem.Send(); }
+                catch { /* Response may be sent automatically with NoUI=true */ }
+                finally { try { Marshal.ReleaseComObject(responseItem); } catch { } }
+            }
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(appointment);
+        }
     }
 
     public void Dispose()

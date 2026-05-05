@@ -20,6 +20,7 @@ public static class CalendarCommand
         cmd.Subcommands.Add(BuildFreeSlots());
         cmd.Subcommands.Add(BuildAttendees());
         cmd.Subcommands.Add(BuildCalendars());
+        cmd.Subcommands.Add(BuildRespond());
         return cmd;
     }
 
@@ -236,6 +237,40 @@ public static class CalendarCommand
             using var svc = new OutlookCalendarService();
             var calendars = svc.GetCalendars();
             Console.WriteLine(JsonSerializer.Serialize(calendars, JsonOptions));
+        });
+        return cmd;
+    }
+
+    private static Command BuildRespond()
+    {
+        var idArg      = new Argument<string>("id") { Description = "Event ID" };
+        var responseArg = new Argument<string>("response") { Description = "Response: accept, decline, or tentative" };
+        var accountOpt = new Option<string?>("--account") { Description = "Account display name" };
+
+        var cmd = new Command("respond", "Respond to a meeting invitation (accept, decline, or tentative)");
+        cmd.Arguments.Add(idArg); cmd.Arguments.Add(responseArg); cmd.Options.Add(accountOpt);
+        cmd.SetAction(ctx =>
+        {
+            var id       = ctx.GetValue(idArg)!;
+            var response = ctx.GetValue(responseArg)!.ToLowerInvariant();
+            int responseType = response switch
+            {
+                "accept"    => 3, // OlResponseAccepted
+                "decline"   => 4, // OlResponseDeclined
+                "tentative" => 2, // OlResponseTentative
+                _ => throw new ArgumentException($"Invalid response '{response}'. Use: accept, decline, or tentative.")
+            };
+            using var svc = new OutlookCalendarService();
+            try
+            {
+                svc.RespondToMeeting(id, responseType);
+                Console.WriteLine(JsonSerializer.Serialize(new { success = true, response }, JsonOptions));
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                Environment.Exit(1);
+            }
         });
         return cmd;
     }
