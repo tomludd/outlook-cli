@@ -7,18 +7,20 @@ internal sealed class MeetingReminderService : IDisposable
 {
     private static readonly TimeSpan UpcomingWindow = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan AutoOpenGraceWindow = TimeSpan.FromMinutes(2);
-    private static readonly TimeSpan QueryHistoryWindow = TimeSpan.FromHours(8);
-    private static readonly TimeSpan QueryFutureWindow = TimeSpan.FromHours(8);
 
     private readonly MeetingActionStateStore _stateStore = new();
 
-    public IReadOnlyList<ReminderMeeting> GetVisibleMeetings(DateTime now)
+    /// <summary>
+    /// Returns meetings visible in the notification widget, derived from the supplied cached list.
+    /// Excludes cancelled meetings, dismissed meetings, and meetings outside the upcoming window.
+    /// </summary>
+    public IReadOnlyList<ReminderMeeting> GetVisibleMeetings(DateTime now, IReadOnlyList<ReminderMeeting> allMeetings)
     {
         _stateStore.Cleanup(now);
         var visibleWindowEnd = now.Add(UpcomingWindow);
-        var allMeetings = GetMeetings(now);
 
         var visible = allMeetings
+            .Where(x => !x.IsCancelled)
             .Where(x => x.IsOngoing(now) || (x.Start >= now && x.Start <= visibleWindowEnd))
             .Where(x => !_stateStore.IsDismissed(x.Id, now))
             .ToList();
@@ -38,12 +40,15 @@ internal sealed class MeetingReminderService : IDisposable
         return visible;
     }
 
-    public ReminderMeeting? GetNextMeeting(DateTime now)
+    /// <summary>
+    /// Returns the next upcoming or ongoing meeting (non-cancelled), derived from the supplied cached list.
+    /// </summary>
+    public ReminderMeeting? GetNextMeeting(DateTime now, IReadOnlyList<ReminderMeeting> allMeetings)
     {
         _stateStore.Cleanup(now);
 
-        return GetMeetings(now)
-            .Where(x => x.End > now)
+        return allMeetings
+            .Where(x => !x.IsCancelled && x.End > now)
             .OrderBy(x => x.IsOngoing(now) ? 0 : 1)
             .ThenBy(x => x.Start)
             .FirstOrDefault();
@@ -124,6 +129,7 @@ internal sealed class MeetingReminderService : IDisposable
         var location = GetValue(row, "location") ?? string.Empty;
         var body = GetValue(row, "body") ?? string.Empty;
         var responseStatus = GetValue(row, "responseStatus") ?? "Unknown";
+        var account = GetValue(row, "account") ?? string.Empty;
 
         bool isMeeting = false;
         if (row.TryGetValue("isMeeting", out var isMeetingRaw) && isMeetingRaw is bool b)
@@ -144,6 +150,26 @@ internal sealed class MeetingReminderService : IDisposable
         }
 
         var teamsJoinUrl = TeamsJoinLinkResolver.Resolve(body, location);
+        var teamsChatUrl = TeamsJoinLinkResolver.ResolveChat(body, location)
+                           ?? TeamsJoinLinkResolver.DeriveChatUrlFromJoinUrl(teamsJoinUrl)
+                           ?? TeamsJoinLinkResolver.DeriveChatUrlFromDecodedBody(body);
+
+        // Append accountHint so Teams opens the meeting/chat with the correct account
+        // when multiple accounts are signed in.
+        if (!string.IsNullOrEmpty(account))
+        {
+            var hint = Uri.EscapeDataString(account);
+            if (teamsJoinUrl is not null)
+            {
+                var sep = teamsJoinUrl.Contains('?') ? '&' : '?';
+                teamsJoinUrl = $"{teamsJoinUrl}{sep}accountHint={hint}";
+            }
+            if (teamsChatUrl is not null)
+            {
+                var sep = teamsChatUrl.Contains('?') ? '&' : '?';
+                teamsChatUrl = $"{teamsChatUrl}{sep}accountHint={hint}";
+            }
+        }
 
         return new ReminderMeeting
         {
@@ -157,21 +183,48 @@ internal sealed class MeetingReminderService : IDisposable
             IsCancelled = isCancelled,
             IsResponseRequested = isResponseRequested,
             ResponseStatus = responseStatus,
-            TeamsJoinUrl = teamsJoinUrl
+            TeamsJoinUrl = teamsJoinUrl,
+            TeamsChatUrl = teamsChatUrl,
+            Account = account
         };
     }
 
-    private static List<ReminderMeeting> GetMeetings(DateTime now)
+    /// <summary>
+    /// Returns all of today's meetings (including cancelled) derived from the supplied cached list.
+    /// </summary>
+    public IReadOnlyList<ReminderMeeting> GetTodaysMeetings(DateTime now, IReadOnlyList<ReminderMeeting> allMeetings)
+    {
+        var todayStart = now.Date;
+        var todayEnd   = todayStart.AddDays(1);
+
+        return allMeetings
+            .Where(x => x.Start >= todayStart && x.Start < todayEnd && !x.Body.Contains("[outlook-sync:"))
+            .DistinctBy(x => x.Id)
+            .OrderBy(x => x.Start)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Fetches all meetings (including cancelled) from Outlook COM for the given time range.
+    /// Called by <see cref="MeetingCache"/> on the UI/STA thread.
+    /// </summary>
+    public IReadOnlyList<ReminderMeeting> FetchAll(DateTime from, DateTime to)
     {
         using var calendarService = new OutlookCalendarService();
-        var events = calendarService.ListEvents(now.Subtract(QueryHistoryWindow), now.Add(QueryFutureWindow), account: null);
+        var events = calendarService.ListEvents(from, to, account: null);
 
         return events
             .Select(ToReminderMeeting)
-            .Where(x => x is not null && !x.Body.Contains("[outlook-sync:") && !x.IsCancelled)
+            .Where(x => x is not null)
             .Cast<ReminderMeeting>()
             .DistinctBy(x => x.Id)
             .ToList();
+    }
+
+    public void RespondToMeeting(string meetingId, bool accept)
+    {
+        using var calendarService = new OutlookCalendarService();
+        calendarService.RespondToMeeting(meetingId, accept ? 3 : 4);
     }
 
     private static string? GetValue(Dictionary<string, object?> row, string key)

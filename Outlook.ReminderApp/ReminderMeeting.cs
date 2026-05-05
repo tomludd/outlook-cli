@@ -13,7 +13,9 @@ internal sealed class ReminderMeeting
     public bool IsResponseRequested { get; init; }
     public string ResponseStatus { get; init; } = "Unknown";
     public string? TeamsJoinUrl { get; init; }
+    public string? TeamsChatUrl { get; init; }
     public bool IsOverlapping { get; set; }
+    public string Account { get; init; } = string.Empty;
 
     public bool IsOngoing(DateTime now)
     {

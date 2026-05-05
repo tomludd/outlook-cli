@@ -1,6 +1,6 @@
 namespace Outlook.ReminderApp;
 
-internal sealed class MainForm : Form
+internal sealed class NotificationForm : Form
 {
     private static readonly IntPtr HwndTopMost = new(-1);
     private const int WsExToolWindow = 0x00000080;
@@ -11,19 +11,20 @@ internal sealed class MainForm : Form
     private const uint SwpShowWindow = 0x0040;
 
     private readonly MeetingReminderService _reminderService;
+    private readonly MeetingCache _cache;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly FlowLayoutPanel _meetingList;
     private readonly NotifyIcon _trayIcon;
     private readonly Icon _trayBellIcon;
 
-    private DateTime _nextRefreshAt = DateTime.MinValue;
     private IReadOnlyList<ReminderMeeting> _currentMeetings = Array.Empty<ReminderMeeting>();
     private ReminderMeeting? _nextMeeting;
     private IReadOnlyList<string> _renderedMeetingIds = Array.Empty<string>();
 
-    public MainForm(MeetingReminderService reminderService)
+    public NotificationForm(MeetingReminderService reminderService, MeetingCache cache)
     {
         _reminderService = reminderService;
+        _cache = cache;
 
         AutoScaleMode = AutoScaleMode.None;
         FormBorderStyle = FormBorderStyle.None;
@@ -87,8 +88,9 @@ internal sealed class MainForm : Form
 
         Load += (_, _) =>
         {
+            _cache.Refreshed += OnCacheRefreshed;
             _timer.Start();
-            RefreshMeetings(DateTime.Now);
+            UpdateFromCache(DateTime.Now);
             RebuildView(DateTime.Now);
             EnsureTopMostWindow();
         };
@@ -108,29 +110,18 @@ internal sealed class MainForm : Form
     private void OnTick()
     {
         var now = DateTime.Now;
-        var didRefresh = false;
-
-        if (now >= _nextRefreshAt)
-        {
-            RefreshMeetings(now);
-            didRefresh = true;
-        }
-
         _reminderService.TryAutoOpenDueMeetings(_currentMeetings, now);
+        UpdateRowCountdowns(now);
+        UpdateTrayIcon(now);
+    }
 
-        if (didRefresh)
-        {
-            var newIds = GetMeetingsToShow().Select(m => m.Id).ToList();
-            if (!newIds.SequenceEqual(_renderedMeetingIds))
-            {
-                RebuildView(now);
-            }
-            else
-            {
-                UpdateRowCountdowns(now);
-                UpdateTrayIcon(now);
-            }
-        }
+    private void OnCacheRefreshed(object? sender, EventArgs e)
+    {
+        var now = DateTime.Now;
+        UpdateFromCache(now);
+        var newIds = GetMeetingsToShow().Select(m => m.Id).ToList();
+        if (!newIds.SequenceEqual(_renderedMeetingIds))
+            RebuildView(now);
         else
         {
             UpdateRowCountdowns(now);
@@ -138,20 +129,10 @@ internal sealed class MainForm : Form
         }
     }
 
-    private void RefreshMeetings(DateTime now)
+    private void UpdateFromCache(DateTime now)
     {
-        try
-        {
-            _currentMeetings = _reminderService.GetVisibleMeetings(now);
-            _nextMeeting = _reminderService.GetNextMeeting(now);
-        }
-        catch
-        {
-            _currentMeetings = Array.Empty<ReminderMeeting>();
-            _nextMeeting = null;
-        }
-
-        _nextRefreshAt = now.AddSeconds(15);
+        _currentMeetings = _reminderService.GetVisibleMeetings(now, _cache.All);
+        _nextMeeting = _reminderService.GetNextMeeting(now, _cache.All);
     }
 
     private void RebuildView(DateTime now)
@@ -190,14 +171,28 @@ internal sealed class MainForm : Form
 
     private Control CreateMeetingRow(ReminderMeeting meeting, DateTime now)
     {
-        const int RowH = 48;
+        const int RowH = 54;
+        const int rowWidth = 538;
+        const int iconSize = 28;
+        const int iconGap = 2;
+        const int rightMargin = 6;
+
+        bool hasJoin = meeting.HasTeamsJoinUrl;
+        bool hasChat = meeting.TeamsChatUrl is not null;
+        bool hasRespond = meeting.IsResponseRequested
+            && !meeting.IsCancelled
+            && !string.Equals(meeting.ResponseStatus, "Accepted", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(meeting.ResponseStatus, "Declined", StringComparison.OrdinalIgnoreCase);
+
         var isDismissed = _reminderService.IsDismissed(meeting.Id, now);
+        var rowBg = GetRowBackColor(meeting, now, isDismissed);
+
         var row = new Panel
         {
-            Width = 538,
+            Width = rowWidth,
             Height = RowH,
             Margin = new Padding(0, 0, 0, 4),
-            BackColor = GetRowBackColor(meeting, now, isDismissed),
+            BackColor = rowBg,
             Tag = meeting
         };
 
@@ -207,41 +202,75 @@ internal sealed class MainForm : Form
             BackColor = GetAccentColor(meeting, now, isDismissed)
         };
 
-        // Right-side buttons (Join + dismiss ×)
-        var dismissButton = new Button
-        {
-            Left = 510, Top = 9, Width = 24, Height = 30,
-            Text = "×",
-            TextAlign = ContentAlignment.MiddleCenter,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(50, 58, 70),
-            ForeColor = Color.WhiteSmoke,
-            Font = new Font("Segoe UI", 11, FontStyle.Bold)
-        };
-        dismissButton.FlatAppearance.BorderSize = 0;
-        dismissButton.Click += (_, _) =>
+        // Build icon slots right-to-left: chat, join, accept, decline, dismiss
+        int cursor = rowWidth - rightMargin;
+        int dismissLeft, joinLeft = -1, chatLeft = -1, acceptLeft = -1, declineLeft = -1;
+
+        if (hasChat)    { chatLeft    = cursor - iconSize; cursor = chatLeft    - iconGap; }
+        if (hasJoin)    { joinLeft    = cursor - iconSize; cursor = joinLeft    - iconGap; }
+        if (hasRespond) { declineLeft = cursor - iconSize; cursor = declineLeft - iconGap;
+                          acceptLeft  = cursor - iconSize; cursor = acceptLeft  - iconGap; }
+        dismissLeft                 = cursor - iconSize; cursor = dismissLeft - iconGap;
+
+        int contentRight = cursor;
+        int iconTop = (RowH - iconSize) / 2;
+
+        // Dismiss
+        var dismissBtn = MaterialIcons.MakeButton(MaterialIcons.Close, dismissLeft, iconTop, iconSize,
+            Color.FromArgb(160, 165, 185), rowBg);
+        dismissBtn.Click += (_, _) =>
         {
             _reminderService.Dismiss(meeting);
-            RefreshMeetings(DateTime.Now);
-            RebuildView(DateTime.Now);
+            var n = DateTime.Now;
+            UpdateFromCache(n);
+            RebuildView(n);
         };
+        row.Controls.Add(dismissBtn);
 
-        var joinButton = new Button
+        if (hasJoin)
         {
-            Left = 456, Top = 9, Width = 50, Height = 30,
-            Text = "Join",
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(30, 105, 70),
-            ForeColor = Color.WhiteSmoke,
-            Visible = meeting.HasTeamsJoinUrl
-        };
-        joinButton.FlatAppearance.BorderSize = 0;
-        joinButton.Click += (_, _) => _reminderService.OpenJoin(meeting);
+            var joinBtn = MaterialIcons.MakeButton(MaterialIcons.VideoCall, joinLeft, iconTop, iconSize,
+                Color.FromArgb(0, 200, 83), rowBg, 0.78f);
+            joinBtn.Click += (_, _) => _reminderService.OpenJoin(meeting);
+            row.Controls.Add(joinBtn);
+        }
 
-        int rightEdge = meeting.HasTeamsJoinUrl ? joinButton.Left : dismissButton.Left;
-        int countdownWidth = 124;
-        int countdownLeft = rightEdge - countdownWidth - 4;
+        if (hasChat)
+        {
+            var chatBtn = MaterialIcons.MakeButton(MaterialIcons.ChatBubble, chatLeft, iconTop, iconSize,
+                Color.FromArgb(100, 160, 230), rowBg);
+            chatBtn.Click += (_, _) => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = meeting.TeamsChatUrl!,
+                UseShellExecute = true
+            });
+            row.Controls.Add(chatBtn);
+        }
 
+        if (hasRespond)
+        {
+            var acceptBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbUp, acceptLeft, iconTop, iconSize,
+                Color.FromArgb(80, 190, 120), rowBg);
+            acceptBtn.Click += (_, _) =>
+            {
+                try { _reminderService.RespondToMeeting(meeting.Id, true); } catch { }
+                var n = DateTime.Now; UpdateFromCache(n); RebuildView(n);
+            };
+            row.Controls.Add(acceptBtn);
+
+            var declineBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbDown, declineLeft, iconTop, iconSize,
+                Color.FromArgb(210, 80, 90), rowBg);
+            declineBtn.Click += (_, _) =>
+            {
+                try { _reminderService.RespondToMeeting(meeting.Id, false); } catch { }
+                var n = DateTime.Now; UpdateFromCache(n); RebuildView(n);
+            };
+            row.Controls.Add(declineBtn);
+        }
+
+        // Countdown column
+        int countdownWidth = 90;
+        int countdownLeft = contentRight - countdownWidth;
         var countdownLabel = new Label
         {
             Name = "CountdownLabel",
@@ -263,11 +292,10 @@ internal sealed class MainForm : Form
             TextAlign = ContentAlignment.TopRight,
             Font = new Font("Segoe UI", 8, FontStyle.Regular),
             ForeColor = Color.Gainsboro,
-            Text = BuildTimingText(meeting),
-            Visible = true
+            Text = BuildTimingText(meeting)
         };
 
-        int textWidth = countdownLeft - 14 - 4;
+        int textWidth = Math.Max(0, countdownLeft - 14 - 4);
         var title = new Label
         {
             AutoSize = false,
@@ -278,7 +306,6 @@ internal sealed class MainForm : Form
             Text = meeting.DisplaySubject
         };
 
-        // Location left, timing lives in the right countdown column
         var locationLabel = new Label
         {
             AutoSize = false,
@@ -295,8 +322,6 @@ internal sealed class MainForm : Form
         row.Controls.Add(locationLabel);
         row.Controls.Add(countdownLabel);
         row.Controls.Add(endCountdownLabel);
-        row.Controls.Add(joinButton);
-        row.Controls.Add(dismissButton);
 
         return row;
     }
@@ -355,15 +380,15 @@ internal sealed class MainForm : Form
 
     private void ApplyPreferredSizeAndPosition(int visibleRowCount)
     {
-        const int rowH = 48;
-        const int gap = 4;  // gap between cards
+        const int rowH = 54;
+        const int gap = 4;
         var newHeight = visibleRowCount * rowH + (visibleRowCount - 1) * gap + 16;
         Height = newHeight;
+        Width = 550;
 
         var workingArea = Screen.PrimaryScreen?.WorkingArea ?? Screen.FromControl(this).WorkingArea;
-        // Sit flush on top of the taskbar, bottom-left
-        Left = workingArea.Left + 8;
-        Top = workingArea.Bottom - Height; // if only one row, sit above the taskbar; if multiple rows, sit flush with the top of the taskbar
+        Left = workingArea.Left + (workingArea.Width - Width) / 2;
+        Top  = workingArea.Bottom - Height;
     }
 
     private void EnsureTopMostWindow()

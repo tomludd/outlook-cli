@@ -17,6 +17,11 @@ internal static class Program
         ApplicationConfiguration.Initialize();
 
         using var reminderService = new MeetingReminderService();
-        Application.Run(new MainForm(reminderService));
+        using var cache = new MeetingCache(reminderService);
+        cache.Start();
+
+        var agendaForm = new AgendaForm(reminderService, cache);
+        agendaForm.Show();
+        Application.Run(new NotificationForm(reminderService, cache));
     }
 }
