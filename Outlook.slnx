@@ -5,6 +5,7 @@
     <Platform Name="x86" />
   </Configurations>
   <Project Path="Outlook.Cli/Outlook.Cli.csproj" />
+  <Project Path="Outlook.ReminderApp/Outlook.ReminderApp.csproj" />
   <Project Path="Outlook.COM.IntegrationTests/Outlook.COM.IntegrationTests.csproj" />
   <Project Path="Outlook.COM/Outlook.COM.csproj" />
 </Solution>
