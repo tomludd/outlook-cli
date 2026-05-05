@@ -12,6 +12,8 @@ public class OutlookCalendarService : IDisposable
     private const int OlFolderCalendar = 9;
     private const int OlAppointmentItem = 1;
     private const int OlMeeting = 1;
+    private const int OlMeetingCanceled = 5;
+    private const int OlMeetingReceivedAndCanceled = 7;
     private const int OlBusy = 2;
     private const int OlTentative = 1;
     private const int OlFree = 0;
@@ -398,6 +400,7 @@ public class OutlookCalendarService : IDisposable
             ["organizer"] = (string)appointment.Organizer,
             ["isRecurring"] = (bool)appointment.IsRecurring,
             ["isMeeting"] = (int)appointment.MeetingStatus == OlMeeting,
+            ["isCancelled"] = (int)appointment.MeetingStatus is OlMeetingCanceled or OlMeetingReceivedAndCanceled,
             ["responseRequested"] = (bool)appointment.ResponseRequested
         };
 

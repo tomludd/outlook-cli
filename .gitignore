@@ -3,5 +3,9 @@ obj/
 .vs/
 *.user
 *.suo
+*.rsuser
+*.sln.docstates
 
 nupkg/*
+artifacts/
+TestResults/
