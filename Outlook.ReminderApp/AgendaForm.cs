@@ -35,7 +35,11 @@ internal sealed class AgendaForm : Form
     private readonly MeetingReminderService _reminderService;
     private readonly MeetingCache _cache;
     private Panel _listPanel = null!;
+    private System.Windows.Forms.Timer _countdownTimer = null!;
     private bool _needsRefresh = true;
+    private Panel? _nowSepPanel;
+    private Label? _nowSepCountdownLabel;
+    private Color _nowSepColor = Color.FromArgb(255, 85, 85);
 
     public AgendaForm(MeetingReminderService reminderService, MeetingCache cache)
     {
@@ -65,6 +69,10 @@ internal sealed class AgendaForm : Form
         if (appIcon is not null) Icon = appIcon;
 
         BuildLayout();
+
+        _countdownTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+        _countdownTimer.Tick += (_, _) => UpdateCountdown();
+        _countdownTimer.Start();
 
         // SizeChanged fires reliably when the window is restored from Minimized → Normal.
         SizeChanged += (_, _) =>
@@ -180,6 +188,9 @@ internal sealed class AgendaForm : Form
         SuspendLayout();
         _listPanel.SuspendLayout();
 
+        _nowSepPanel = null;
+        _nowSepCountdownLabel = null;
+
         foreach (Control c in _listPanel.Controls)
             c.Dispose();
         _listPanel.Controls.Clear();
@@ -196,19 +207,25 @@ internal sealed class AgendaForm : Form
             if (!separatorInserted && !isPast)
             {
                 separatorInserted = true;
-                if (y > 0) // only if there were past meetings above
-                {
-                    var sep = CreateNowSeparator(rowWidth);
-                    sep.Top = y;
-                    _listPanel.Controls.Add(sep);
-                    y += sep.Height + 4;
-                }
+                var sep = CreateNowSeparator(rowWidth);
+                sep.Top = y;
+                _listPanel.Controls.Add(sep);
+                y += sep.Height + 4;
             }
 
             var row = CreateAgendaRow(meeting, now, rowWidth, isPast);
             row.Top = y;
             _listPanel.Controls.Add(row);
             y += row.Height + 4;
+        }
+
+        // If all meetings were in the past (or no meetings), append the NOW separator at bottom
+        if (!separatorInserted)
+        {
+            var sep = CreateNowSeparator(rowWidth);
+            sep.Top = y;
+            _listPanel.Controls.Add(sep);
+            y += sep.Height + 4;
         }
 
         if (meetings.Count == 0)
@@ -236,14 +253,18 @@ internal sealed class AgendaForm : Form
         _listPanel.ResumeLayout();
         ResumeLayout();
 
+        UpdateCountdown();
+
         // Re-activate after the COM call to reclaim focus if Outlook briefly stole it.
         if (WindowState == FormWindowState.Normal)
             Activate();
     }
 
-    private static Panel CreateNowSeparator(int rowWidth)
+    private Panel CreateNowSeparator(int rowWidth)
     {
-        const int sepH = 20;
+        const int sepH = 22;
+        const int countdownWidth = 150;
+
         var panel = new Panel
         {
             Left = 0,
@@ -252,22 +273,39 @@ internal sealed class AgendaForm : Form
             BackColor = Color.FromArgb(22, 26, 36)
         };
 
+        var countdownLbl = new Label
+        {
+            AutoSize = false,
+            Left = rowWidth - countdownWidth - 6,
+            Top = 0,
+            Width = countdownWidth,
+            Height = sepH,
+            Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+            ForeColor = _nowSepColor,
+            TextAlign = ContentAlignment.MiddleRight,
+            Text = string.Empty
+        };
+
         panel.Paint += (_, e) =>
         {
             var g = e.Graphics;
             int midY = sepH / 2;
             const string text = "NOW";
             using var font = new Font("Segoe UI", 7, FontStyle.Bold);
-            using var brush = new SolidBrush(Color.FromArgb(255, 85, 85));
-            using var pen = new Pen(Color.FromArgb(255, 85, 85), 2);
+            using var brush = new SolidBrush(_nowSepColor);
+            using var pen = new Pen(_nowSepColor, 2);
             var textSize = g.MeasureString(text, font);
             float textX = 8;
             float textY = midY - textSize.Height / 2;
             g.DrawString(text, font, brush, textX, textY);
             int lineX = (int)(textX + textSize.Width + 2);
-            g.DrawLine(pen, lineX, midY, panel.Width - 4, midY);
+            int lineEnd = countdownLbl.Left - 4;
+            g.DrawLine(pen, lineX, midY, lineEnd, midY);
         };
 
+        panel.Controls.Add(countdownLbl);
+        _nowSepPanel = panel;
+        _nowSepCountdownLabel = countdownLbl;
         return panel;
     }
 
@@ -280,102 +318,116 @@ internal sealed class AgendaForm : Form
             && !string.Equals(meeting.ResponseStatus, "Accepted", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(meeting.ResponseStatus, "Declined", StringComparison.OrdinalIgnoreCase);
 
-        int rowH = 54;
+        bool hasIcons = hasJoin || hasChat || hasRespond;
+        bool showAccount = !string.IsNullOrEmpty(meeting.Account);
 
-        // Build icon slots right-to-left: Chat(💬), Join(📹), Accept(👍), Decline(👎)
-        const int iconSize = 28;
-        const int iconGap = 2;
-        const int rightMargin = 6;
-        int cursor = rowWidth - rightMargin;
-        int joinLeft = -1, chatLeft = -1, acceptLeft = -1, declineLeft = -1;
-        if (hasChat)   { chatLeft    = cursor - iconSize; cursor = chatLeft    - iconGap; }
-        if (hasJoin)   { joinLeft    = cursor - iconSize; cursor = joinLeft    - iconGap; }
-        if (hasRespond){ declineLeft = cursor - iconSize; cursor = declineLeft - iconGap;
-                         acceptLeft  = cursor - iconSize; cursor = acceptLeft  - iconGap; }
-        int contentRight = cursor; // right edge for text content
+        const int iconSize     = 28;
+        const int iconGap      = 2;
+        const int rightMargin  = 6;
+        const int leftColLeft  = 12;
+        const int leftColWidth = 88;
+        const int midColLeft   = 104;
+
+        // Row 1 right column: account label (fixed width)
+        const int accountWidth = 120;
+        int row1RightLeft  = rowWidth - rightMargin - accountWidth;
+        int midColWidthRow1 = Math.Max(0, row1RightLeft - midColLeft - 4);
+
+        // Row 2 right column: icon cluster (sized to actual icon count)
+        int iconCount = (hasJoin ? 1 : 0) + (hasChat ? 1 : 0) + (hasRespond ? 2 : 0);
+        int iconClusterWidth = iconCount > 0 ? iconCount * iconSize + (iconCount - 1) * iconGap : 0;
+        int row2RightLeft = rowWidth - rightMargin - iconClusterWidth;
+        int midColWidthRow2 = hasIcons ? Math.Max(0, row2RightLeft - midColLeft - 4) : Math.Max(0, rowWidth - rightMargin - midColLeft - 4);
+
+        const int line1Top = 6;
+        const int line1H   = 18;
+        const int line2Top = 28;
+        int line2H = hasIcons ? iconSize : 17;
+        int rowH   = line2Top + line2H + 4;
+
+        // Duration string
+        var duration = meeting.End - meeting.Start;
+        string durationText = duration.TotalHours >= 1
+            ? (duration.Minutes > 0 ? $"{(int)duration.TotalHours}h {duration.Minutes}m" : $"{(int)duration.TotalHours}h")
+            : $"{(int)duration.TotalMinutes} min";
 
         var rowBg = GetRowBackColor(meeting, now, isPast);
-        var row = new Panel
-        {
-            Left = 0,
-            Width = rowWidth,
-            Height = rowH,
-            BackColor = rowBg
-        };
-
-        var accent = new Panel
-        {
-            Left = 0, Top = 0,
-            Width = 4, Height = rowH,
-            BackColor = GetAccentColor(meeting, now, isPast)
-        };
+        var row = new Panel { Left = 0, Width = rowWidth, Height = rowH, BackColor = rowBg };
+        var accent = new Panel { Left = 0, Top = 0, Width = 4, Height = rowH, BackColor = GetAccentColor(meeting, now, isPast) };
 
         var subjectColor = (meeting.IsCancelled || isPast)
-            ? Color.FromArgb(120, 120, 130)
-            : Color.WhiteSmoke;
+            ? Color.FromArgb(120, 120, 130) : Color.WhiteSmoke;
 
+        // ── Row 1: time | subject | account ──
         var timeLabel = new Label
         {
             AutoSize = false,
-            Left = 12, Top = 9,
-            Width = 88, Height = 18,
+            Left = leftColLeft, Top = line1Top, Width = leftColWidth, Height = line1H,
             Font = new Font("Segoe UI", 8, FontStyle.Regular),
             ForeColor = Color.FromArgb(180, 180, 195),
             Text = $"{meeting.Start:HH:mm}–{meeting.End:HH:mm}",
             TextAlign = ContentAlignment.MiddleLeft
         };
 
-        // Account label sits just left of the icon cluster
-        const int accountWidth = 110;
-        bool showAccount = !string.IsNullOrEmpty(meeting.Account);
-        int accountLeft = contentRight - accountWidth;
-        var accountLabel = new Label
-        {
-            AutoSize = false,
-            AutoEllipsis = true,
-            Left = Math.Max(104, accountLeft), Top = 10,
-            Width = accountWidth, Height = 16,
-            Font = new Font("Segoe UI", 7, FontStyle.Regular),
-            ForeColor = Color.FromArgb(120, 125, 140),
-            Text = meeting.Account.Contains('@') ? meeting.Account[(meeting.Account.IndexOf('@') + 1)..] : meeting.Account,
-            TextAlign = ContentAlignment.MiddleRight,
-            Visible = showAccount
-        };
-
-        int subjectRight = showAccount ? accountLeft - 4 : contentRight - 4;
         var subjectLabel = new Label
         {
-            AutoSize = false,
-            AutoEllipsis = true,
-            Left = 104, Top = 8,
-            Width = Math.Max(0, subjectRight - 104),
-            Height = 20,
+            AutoSize = false, AutoEllipsis = true,
+            Left = midColLeft, Top = line1Top, Width = midColWidthRow1, Height = line1H,
             Font = new Font("Segoe UI", 9, FontStyle.Bold),
             ForeColor = subjectColor,
             Text = meeting.DisplaySubject,
             TextAlign = ContentAlignment.MiddleLeft
         };
 
-        var locationLabel = new Label
+        var accountLabel = new Label
+        {
+            AutoSize = false, AutoEllipsis = true,
+            Left = row1RightLeft, Top = line1Top, Width = accountWidth, Height = line1H,
+            Font = new Font("Segoe UI", 7, FontStyle.Regular),
+            ForeColor = Color.FromArgb(110, 115, 135),
+            Text = meeting.Account.Contains('@') ? meeting.Account[(meeting.Account.IndexOf('@') + 1)..] : meeting.Account,
+            TextAlign = ContentAlignment.MiddleRight,
+            Visible = showAccount
+        };
+
+        // ── Row 2: duration | location | icons ──
+        var durationLabel = new Label
         {
             AutoSize = false,
-            AutoEllipsis = true,
-            Left = 12, Top = 28,
-            Width = Math.Max(0, contentRight - 24),
-            Height = 18,
+            Left = leftColLeft, Top = line2Top, Width = leftColWidth, Height = line2H,
+            Font = new Font("Segoe UI", 7.5f, FontStyle.Regular),
+            ForeColor = Color.FromArgb(110, 115, 135),
+            Text = durationText,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        var locationLabel = new Label
+        {
+            AutoSize = false, AutoEllipsis = true,
+            Left = midColLeft, Top = line2Top, Width = midColWidthRow2, Height = line2H,
             Font = new Font("Segoe UI", 8, FontStyle.Regular),
             ForeColor = Color.FromArgb(160, 165, 180),
             Text = BuildLocationText(meeting),
             TextAlign = ContentAlignment.MiddleLeft
         };
 
-        int iconTop = (54 - iconSize) / 2;
-
         row.Controls.Add(accent);
         row.Controls.Add(timeLabel);
         row.Controls.Add(subjectLabel);
         row.Controls.Add(accountLabel);
+        row.Controls.Add(durationLabel);
         row.Controls.Add(locationLabel);
+
+        if (!hasIcons) return row;
+
+        // Icons right-to-left, starting from row2RightLeft
+        int iconTop = line2Top;
+        int cursor = rowWidth - rightMargin;
+        int joinLeft = -1, chatLeft = -1, acceptLeft = -1, declineLeft = -1;
+        if (hasChat)    { chatLeft    = cursor - iconSize; cursor = chatLeft    - iconGap; }
+        if (hasJoin)    { joinLeft    = cursor - iconSize; cursor = joinLeft    - iconGap; }
+        if (hasRespond) { declineLeft = cursor - iconSize; cursor = declineLeft - iconGap;
+                          acceptLeft  = cursor - iconSize; }
 
         if (hasJoin)
         {
@@ -387,7 +439,8 @@ internal sealed class AgendaForm : Form
 
         if (hasChat)
         {
-            var chatBtn = MaterialIcons.MakeButton(MaterialIcons.ChatBubble, chatLeft, iconTop, iconSize, Color.FromArgb(100, 160, 230), rowBg);
+            var chatBtn = MaterialIcons.MakeButton(MaterialIcons.ChatBubble, chatLeft, iconTop, iconSize,
+                Color.FromArgb(100, 160, 230), rowBg);
             chatBtn.Click += (_, _) => Process.Start(new ProcessStartInfo
             {
                 FileName = meeting.TeamsChatUrl!,
@@ -398,7 +451,8 @@ internal sealed class AgendaForm : Form
 
         if (hasRespond)
         {
-            var acceptBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbUp, acceptLeft, iconTop, iconSize, Color.FromArgb(80, 190, 120), rowBg);
+            var acceptBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbUp, acceptLeft, iconTop, iconSize,
+                Color.FromArgb(80, 190, 120), rowBg);
             acceptBtn.Click += (_, _) =>
             {
                 try { _reminderService.RespondToMeeting(meeting.Id, true); }
@@ -407,7 +461,8 @@ internal sealed class AgendaForm : Form
             };
             row.Controls.Add(acceptBtn);
 
-            var declineBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbDown, declineLeft, iconTop, iconSize, Color.FromArgb(210, 80, 90), rowBg);
+            var declineBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbDown, declineLeft, iconTop, iconSize,
+                Color.FromArgb(210, 80, 90), rowBg);
             declineBtn.Click += (_, _) =>
             {
                 try { _reminderService.RespondToMeeting(meeting.Id, false); }
@@ -466,9 +521,63 @@ internal sealed class AgendaForm : Form
         return parts.Count > 0 ? string.Join(" | ", parts) : (meeting.IsMeeting ? "Online" : "No location");
     }
 
+    private void UpdateCountdown()
+    {
+        var now = DateTime.Now;
+        var next = _cache.All
+            .Where(m => !m.IsCancelled && m.Start.Date == now.Date && m.Start > now)
+            .OrderBy(m => m.Start)
+            .FirstOrDefault();
+
+        string text;
+        Color color;
+
+        if (next is null)
+        {
+            text = "no more meetings";
+            color = Color.FromArgb(80, 85, 100);
+        }
+        else
+        {
+            var diff = next.Start - now;
+            if (diff.TotalMinutes >= 60)
+            {
+                int hours = (int)diff.TotalHours;
+                int minutes = diff.Minutes;
+                text = minutes > 0 ? $"in {hours}h {minutes}m" : $"in {hours}h";
+                color = Color.FromArgb(80, 190, 120); // green
+            }
+            else if (diff.TotalMinutes >= 5)
+            {
+                int minutes = (int)Math.Ceiling(diff.TotalMinutes);
+                text = $"in {minutes} min";
+                color = Color.FromArgb(255, 195, 60); // yellow
+            }
+            else
+            {
+                int totalSeconds = Math.Max(0, (int)Math.Ceiling(diff.TotalSeconds));
+                int m = totalSeconds / 60;
+                int s = totalSeconds % 60;
+                text = $"starting {m}:{s:D2}";
+                color = Color.FromArgb(255, 85, 85); // red
+            }
+        }
+
+        bool colorChanged = _nowSepColor != color;
+        _nowSepColor = color;
+        if (_nowSepCountdownLabel is not null)
+        {
+            _nowSepCountdownLabel.Text = text;
+            _nowSepCountdownLabel.ForeColor = color;
+        }
+        if (colorChanged)
+            _nowSepPanel?.Invalidate();
+    }
+
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         base.OnFormClosed(e);
+        _countdownTimer.Dispose();
         _ownerHandle.Dispose();
     }
 }

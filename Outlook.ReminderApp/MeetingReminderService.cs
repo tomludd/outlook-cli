@@ -218,6 +218,11 @@ internal sealed class MeetingReminderService : IDisposable
             .Where(x => x is not null)
             .Cast<ReminderMeeting>()
             .DistinctBy(x => x.Id)
+            .GroupBy(x => (x.Subject, x.Start, x.End))
+            .Select(g => g
+                .OrderBy(x => x.IsDeclined ? 2 : x.IsNotResponded ? 1 : 0)
+                .ThenByDescending(x => x.HasTeamsJoinUrl)
+                .First())
             .ToList();
     }
 
