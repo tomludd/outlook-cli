@@ -12,6 +12,7 @@ internal sealed class MeetingCache : IDisposable
 
     private readonly MeetingReminderService _service;
     private readonly System.Windows.Forms.Timer _timer;
+    private readonly int _refreshIntervalMs;
 
     /// <summary>
     /// All fetched meetings (including cancelled), covering roughly now ±8 h.
@@ -22,21 +23,35 @@ internal sealed class MeetingCache : IDisposable
     /// <summary>UTC timestamp of the last successful fetch, or <see cref="DateTime.MinValue"/> if never refreshed.</summary>
     public DateTime LastRefreshed { get; private set; } = DateTime.MinValue;
 
+    /// <summary>True once the first refresh has completed successfully.</summary>
+    public bool IsLoaded => LastRefreshed > DateTime.MinValue;
+
     /// <summary>Raised on the UI thread after each refresh attempt (successful or not).</summary>
     public event EventHandler? Refreshed;
 
     public MeetingCache(MeetingReminderService service, int refreshIntervalSeconds = 30)
     {
         _service = service;
-        _timer = new System.Windows.Forms.Timer { Interval = refreshIntervalSeconds * 1000 };
+        _refreshIntervalMs = refreshIntervalSeconds * 1000;
+        _timer = new System.Windows.Forms.Timer { Interval = _refreshIntervalMs };
         _timer.Tick += (_, _) => Refresh();
     }
 
-    /// <summary>Performs an initial synchronous refresh then starts the background timer.</summary>
+    /// <summary>
+    /// Schedules the first refresh to run shortly after the message loop starts,
+    /// keeping the UI thread free during startup so the window and taskbar icon appear immediately.
+    /// </summary>
     public void Start()
     {
-        Refresh();
-        _timer.Start();
+        var startupTimer = new System.Windows.Forms.Timer { Interval = 100 };
+        startupTimer.Tick += (_, _) =>
+        {
+            startupTimer.Stop();
+            startupTimer.Dispose();
+            Refresh();
+            _timer.Start();
+        };
+        startupTimer.Start();
     }
 
     /// <summary>Immediately fetches fresh data from Outlook and raises <see cref="Refreshed"/>.</summary>

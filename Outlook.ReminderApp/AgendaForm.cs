@@ -169,6 +169,17 @@ internal sealed class AgendaForm : Form
             BackColor = Color.FromArgb(22, 26, 36)
         };
 
+        var loadingLabel = new Label
+        {
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            Text = "Loading...",
+            Font = new Font("Segoe UI", 10, FontStyle.Regular),
+            ForeColor = Color.FromArgb(140, 145, 160),
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        _listPanel.Controls.Add(loadingLabel);
+
         Controls.Add(_listPanel);
         Controls.Add(header);
     }
@@ -183,6 +194,28 @@ internal sealed class AgendaForm : Form
     private void RefreshAgenda()
     {
         var now = DateTime.Now;
+
+        if (!_cache.IsLoaded)
+        {
+            // Data not yet available — ensure loading label is visible and wait for Refreshed event.
+            if (_listPanel.Controls.Count == 0 ||
+                _listPanel.Controls[0] is not Label { Text: "Loading..." })
+            {
+                foreach (Control c in _listPanel.Controls) c.Dispose();
+                _listPanel.Controls.Clear();
+                _listPanel.Controls.Add(new Label
+                {
+                    AutoSize = false,
+                    Dock = DockStyle.Fill,
+                    Text = "Loading...",
+                    Font = new Font("Segoe UI", 10, FontStyle.Regular),
+                    ForeColor = Color.FromArgb(140, 145, 160),
+                    TextAlign = ContentAlignment.MiddleCenter
+                });
+            }
+            return;
+        }
+
         var meetings = _reminderService.GetTodaysMeetings(now, _cache.All);
 
         SuspendLayout();

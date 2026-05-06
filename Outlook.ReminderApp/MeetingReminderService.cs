@@ -21,6 +21,7 @@ internal sealed class MeetingReminderService : IDisposable
 
         var visible = allMeetings
             .Where(x => !x.IsCancelled)
+            .Where(x => !x.IsOutlookSynced)
             .Where(x => x.IsOngoing(now) || (x.Start >= now && x.Start <= visibleWindowEnd))
             .Where(x => !_stateStore.IsDismissed(x.Id, now))
             .ToList();
@@ -198,7 +199,7 @@ internal sealed class MeetingReminderService : IDisposable
         var todayEnd   = todayStart.AddDays(1);
 
         return allMeetings
-            .Where(x => x.Start >= todayStart && x.Start < todayEnd && !x.Body.Contains("[outlook-sync:"))
+            .Where(x => x.Start >= todayStart && x.Start < todayEnd && !x.IsOutlookSynced)
             .DistinctBy(x => x.Id)
             .OrderBy(x => x.Start)
             .ToList();

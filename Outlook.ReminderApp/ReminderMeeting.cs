@@ -31,6 +31,8 @@ internal sealed class ReminderMeeting
 
     public bool HasTeamsJoinUrl => !string.IsNullOrWhiteSpace(TeamsJoinUrl);
 
+    public bool IsOutlookSynced => Body.Contains("[outlook-sync:", StringComparison.Ordinal);
+
     public string DisplaySubject =>
         Subject.StartsWith("Following: ", StringComparison.Ordinal)
             ? "Follow: " + Subject[11..]
