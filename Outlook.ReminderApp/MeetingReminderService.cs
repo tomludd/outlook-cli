@@ -115,6 +115,25 @@ internal sealed class MeetingReminderService : IDisposable
         OpenMeetingUrl(meeting.TeamsJoinUrl!);
     }
 
+    /// <summary>
+    /// Returns 0 if the meeting's account domain matches the organizer's email domain (best match),
+    /// 1 otherwise. Used to prefer the copy of a duplicated meeting from the organizer's own org.
+    /// </summary>
+    private static int OrganizerDomainMatchScore(ReminderMeeting m)
+    {
+        if (string.IsNullOrEmpty(m.OrganizerEmail) || string.IsNullOrEmpty(m.Account))
+            return 1;
+        var orgDomain = DomainOf(m.OrganizerEmail);
+        var accDomain = DomainOf(m.Account);
+        return string.Equals(orgDomain, accDomain, StringComparison.OrdinalIgnoreCase) ? 0 : 1;
+    }
+
+    private static string DomainOf(string email)
+    {
+        var at = email.IndexOf('@');
+        return at >= 0 ? email[(at + 1)..] : email;
+    }
+
     private static ReminderMeeting? ToReminderMeeting(Dictionary<string, object?> row)
     {
         var id = GetValue(row, "id");
@@ -132,6 +151,7 @@ internal sealed class MeetingReminderService : IDisposable
         var body = GetValue(row, "body") ?? string.Empty;
         var responseStatus = GetValue(row, "responseStatus") ?? "Unknown";
         var account = GetValue(row, "account") ?? string.Empty;
+        var organizerEmail = GetValue(row, "organizerEmail") ?? string.Empty;
 
         bool isMeeting = false;
         if (row.TryGetValue("isMeeting", out var isMeetingRaw) && isMeetingRaw is bool b)
@@ -187,7 +207,8 @@ internal sealed class MeetingReminderService : IDisposable
             ResponseStatus = responseStatus,
             TeamsJoinUrl = teamsJoinUrl,
             TeamsChatUrl = teamsChatUrl,
-            Account = account
+            Account = account,
+            OrganizerEmail = organizerEmail
         };
     }
 
@@ -222,7 +243,8 @@ internal sealed class MeetingReminderService : IDisposable
             .DistinctBy(x => x.Id)
             .GroupBy(x => (x.Subject, x.Start, x.End))
             .Select(g => g
-                .OrderBy(x => x.IsDeclined ? 2 : x.IsNotResponded ? 1 : 0)
+                .OrderBy(x => OrganizerDomainMatchScore(x))
+                .ThenBy(x => x.IsDeclined ? 2 : x.IsNotResponded ? 1 : 0)
                 .ThenByDescending(x => x.HasTeamsJoinUrl)
                 .First())
             .ToList();
@@ -232,6 +254,55 @@ internal sealed class MeetingReminderService : IDisposable
     {
         using var calendarService = new OutlookCalendarService();
         calendarService.RespondToMeeting(meetingId, accept ? 3 : 4);
+    }
+
+    public MeetingDetails? GetMeetingDetails(string meetingId)
+    {
+        try
+        {
+            using var calendarService = new OutlookCalendarService();
+            var dict = calendarService.GetEvent(meetingId);
+
+            var subject  = dict.TryGetValue("subject",  out var s)  ? s?.ToString()  ?? string.Empty : string.Empty;
+            var organizer = dict.TryGetValue("organizer", out var o)  ? o?.ToString()  ?? string.Empty : string.Empty;
+            var location  = dict.TryGetValue("location",  out var l)  ? l?.ToString()  ?? string.Empty : string.Empty;
+            var body      = dict.TryGetValue("body",      out var bd) ? bd?.ToString() ?? string.Empty : string.Empty;
+            var htmlBody  = dict.TryGetValue("htmlBody",  out var hb) ? hb?.ToString() ?? string.Empty : string.Empty;
+
+            DateTime start = DateTime.MinValue, end = DateTime.MinValue;
+            if (dict.TryGetValue("start", out var sv) && sv is string startStr)
+                DateTime.TryParseExact(startStr, "yyyy-MM-dd HH:mm", null, System.Globalization.DateTimeStyles.None, out start);
+            if (dict.TryGetValue("end", out var ev) && ev is string endStr)
+                DateTime.TryParseExact(endStr, "yyyy-MM-dd HH:mm", null, System.Globalization.DateTimeStyles.None, out end);
+
+            var attendees = new List<AttendeeInfo>();
+            if (dict.TryGetValue("attendees", out var raw) && raw is List<Dictionary<string, string>> list)
+            {
+                foreach (var a in list)
+                {
+                    var name   = a.TryGetValue("name",           out var n) ? n : string.Empty;
+                    var status = a.TryGetValue("responseStatus", out var r) ? r : "Unknown";
+                    var email  = a.TryGetValue("email",          out var e) ? e : string.Empty;
+                    attendees.Add(new AttendeeInfo(name, status, email));
+                }
+            }
+
+            return new MeetingDetails(subject, start, end, organizer, location, body, htmlBody, attendees);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public void OpenInOutlook(string meetingId)
+    {
+        try
+        {
+            using var calendarService = new OutlookCalendarService();
+            calendarService.OpenItem(meetingId);
+        }
+        catch { }
     }
 
     private static string? GetValue(Dictionary<string, object?> row, string key)
@@ -300,3 +371,15 @@ internal sealed class MeetingReminderService : IDisposable
     {
     }
 }
+
+internal sealed record AttendeeInfo(string Name, string ResponseStatus, string Email = "");
+
+internal sealed record MeetingDetails(
+    string Subject,
+    DateTime Start,
+    DateTime End,
+    string Organizer,
+    string Location,
+    string Body,
+    string HtmlBody,
+    IReadOnlyList<AttendeeInfo> Attendees);

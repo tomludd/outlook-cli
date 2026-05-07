@@ -40,6 +40,9 @@ internal sealed class AgendaForm : Form
     private Panel? _nowSepPanel;
     private Label? _nowSepCountdownLabel;
     private Color _nowSepColor = Color.FromArgb(255, 85, 85);
+    private MeetingDetailForm? _activeDetailForm;
+    private bool _needsInitialCenter = true;
+    private string _lastMeetingsFingerprint = string.Empty;
 
     public AgendaForm(MeetingReminderService reminderService, MeetingCache cache)
     {
@@ -99,6 +102,13 @@ internal sealed class AgendaForm : Form
         {
             BeginInvoke(() =>
             {
+                // Don't minimize if the detail flyout just grabbed focus
+                if (_activeDetailForm is { IsDisposed: false } f &&
+                    (f == Form.ActiveForm || f.ContainsFocus))
+                    return;
+
+                _activeDetailForm?.Close();
+                _activeDetailForm = null;
                 WindowState = FormWindowState.Minimized;
                 _needsRefresh = true;
             });
@@ -117,6 +127,7 @@ internal sealed class AgendaForm : Form
     {
         if (m.Msg == WmSysCommand && ((int)m.WParam & 0xFFF0) == ScRestore && IsHandleCreated)
         {
+            _needsInitialCenter = true;
             Opacity = 0;
             base.WndProc(ref m); // triggers WM_SIZE → SizeChanged → RefreshAgenda
             Opacity = 1;
@@ -184,6 +195,29 @@ internal sealed class AgendaForm : Form
         Controls.Add(header);
     }
 
+    private static string ComputeMeetingsFingerprint(IReadOnlyList<ReminderMeeting> meetings, DateTime now)
+    {
+        if (meetings.Count == 0) return "empty";
+        var sb = new System.Text.StringBuilder(meetings.Count * 64);
+        foreach (var m in meetings)
+        {
+            bool isPast = m.End <= now && !m.IsOngoing(now);
+            sb.Append(m.Id).Append('|')
+              .Append(m.Subject).Append('|')
+              .Append(m.Start.Ticks).Append('|')
+              .Append(m.End.Ticks).Append('|')
+              .Append(m.ResponseStatus).Append('|')
+              .Append(m.IsCancelled).Append('|')
+              .Append(m.IsMeeting).Append('|')
+              .Append(m.IsOverlapping).Append('|')
+              .Append(m.TeamsJoinUrl).Append('|')
+              .Append(m.Location).Append('|')
+              .Append(m.Account).Append('|')
+              .Append(isPast).Append(';');
+        }
+        return sb.ToString();
+    }
+
     private void CenterOnScreen()
     {
         var screen = Screen.PrimaryScreen?.WorkingArea ?? Screen.FromControl(this).WorkingArea;
@@ -218,11 +252,23 @@ internal sealed class AgendaForm : Form
 
         var meetings = _reminderService.GetTodaysMeetings(now, _cache.All);
 
+        var fingerprint = ComputeMeetingsFingerprint(meetings, now);
+        if (fingerprint == _lastMeetingsFingerprint)
+        {
+            UpdateCountdown();
+            return;
+        }
+        _lastMeetingsFingerprint = fingerprint;
+
         SuspendLayout();
         _listPanel.SuspendLayout();
 
         _nowSepPanel = null;
         _nowSepCountdownLabel = null;
+
+        // Close any open detail flyout before rebuilding rows
+        _activeDetailForm?.Close();
+        _activeDetailForm = null;
 
         foreach (Control c in _listPanel.Controls)
             c.Dispose();
@@ -281,16 +327,18 @@ internal sealed class AgendaForm : Form
         int contentHeight = y + 36; // rows + header
         Height = Math.Min(Math.Max(contentHeight, 100), maxHeight);
 
-        CenterOnScreen();
+        // Only center on first open (when coming from Minimized via WndProc/SizeChanged).
+        // Skipping CenterOnScreen here prevents the window jumping on every cache refresh.
+        if (_needsInitialCenter)
+        {
+            _needsInitialCenter = false;
+            CenterOnScreen();
+        }
 
         _listPanel.ResumeLayout();
         ResumeLayout();
 
         UpdateCountdown();
-
-        // Re-activate after the COM call to reclaim focus if Outlook briefly stole it.
-        if (WindowState == FormWindowState.Normal)
-            Activate();
     }
 
     private Panel CreateNowSeparator(int rowWidth)
@@ -451,6 +499,16 @@ internal sealed class AgendaForm : Form
         row.Controls.Add(durationLabel);
         row.Controls.Add(locationLabel);
 
+        // All rows are clickable to open the detail flyout (regardless of icon buttons)
+        var clickHandler = (EventHandler)((_, _) => HandleRowClick(meeting));
+        row.Click          += clickHandler;
+        timeLabel.Click    += clickHandler;
+        subjectLabel.Click += clickHandler;
+        accountLabel.Click += clickHandler;
+        durationLabel.Click += clickHandler;
+        locationLabel.Click += clickHandler;
+        row.Cursor = Cursors.Hand;
+
         if (!hasIcons) return row;
 
         // Icons right-to-left, starting from row2RightLeft
@@ -506,6 +564,32 @@ internal sealed class AgendaForm : Form
         }
 
         return row;
+    }
+
+    private void HandleRowClick(ReminderMeeting meeting)
+    {
+        // Toggle: clicking the same row again closes the flyout
+        if (_activeDetailForm is { IsDisposed: false } f && f.Tag is string id && id == meeting.Id)
+        {
+            _activeDetailForm.Close();
+            _activeDetailForm = null;
+            return;
+        }
+
+        _activeDetailForm?.Close();
+        _activeDetailForm = null;
+
+        var details = _reminderService.GetMeetingDetails(meeting.Id)
+            ?? new MeetingDetails(meeting.DisplaySubject, meeting.Start, meeting.End,
+                                  string.Empty, meeting.Location, meeting.Body, string.Empty, []);
+
+        var anchorPoint = new Point(Right, Top);
+        var flyout = new MeetingDetailForm(details, anchorPoint, () => _reminderService.OpenInOutlook(meeting.Id));
+        flyout.Tag = meeting.Id;
+        flyout.FormClosed += (_, _) => { if (_activeDetailForm == flyout) _activeDetailForm = null; };
+
+        _activeDetailForm = flyout;
+        flyout.Show(this); // owned by AgendaForm — won't trigger AgendaForm.Deactivate
     }
 
     private static Color GetRowBackColor(ReminderMeeting meeting, DateTime now, bool isPast = false)

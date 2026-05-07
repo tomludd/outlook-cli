@@ -16,6 +16,7 @@ internal sealed class ReminderMeeting
     public string? TeamsChatUrl { get; init; }
     public bool IsOverlapping { get; set; }
     public string Account { get; init; } = string.Empty;
+    public string OrganizerEmail { get; init; } = string.Empty;
 
     public bool IsOngoing(DateTime now)
     {

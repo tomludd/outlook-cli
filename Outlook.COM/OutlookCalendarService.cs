@@ -12,6 +12,7 @@ public class OutlookCalendarService : IDisposable
     private const int OlFolderCalendar = 9;
     private const int OlAppointmentItem = 1;
     private const int OlMeeting = 1;
+    private const int OlMeetingReceived = 3;
     private const int OlMeetingCanceled = 5;
     private const int OlMeetingReceivedAndCanceled = 7;
     private const int OlBusy = 2;
@@ -482,34 +483,70 @@ public class OutlookCalendarService : IDisposable
             _ => "Unknown"
         };
 
+        dict["organizerEmail"] = TryGetOrganizerEmail(appointment);
         dict["body"] = (string)appointment.Body;
 
-        if (includeAttendees && (int)appointment.MeetingStatus == OlMeeting)
+        if (includeAttendees && (int)appointment.MeetingStatus is OlMeeting or OlMeetingReceived)
         {
             var attendees = new List<Dictionary<string, string>>();
-            var recipients = appointment.Recipients;
-            for (int i = 1; i <= recipients.Count; i++)
+            try
             {
-                var recipient = recipients.Item(i);
-                var responseStatus = (int)recipient.MeetingResponseStatus switch
+                var recipients = appointment.Recipients;
+                for (int i = 1; i <= recipients.Count; i++)
                 {
-                    OlResponseAccepted => "Accepted",
-                    OlResponseDeclined => "Declined",
-                    OlResponseTentative => "Tentative",
-                    OlResponseNotResponded => "Not Responded",
-                    _ => "Unknown"
-                };
+                    var recipient = recipients.Item(i);
+                    var responseStatus = (int)recipient.MeetingResponseStatus switch
+                    {
+                        OlResponseAccepted => "Accepted",
+                        OlResponseDeclined => "Declined",
+                        OlResponseTentative => "Tentative",
+                        OlResponseNotResponded => "Not Responded",
+                        _ => "Not Responded"
+                    };
 
-                attendees.Add(new Dictionary<string, string>
-                {
-                    ["name"] = (string)recipient.Name,
-                    ["responseStatus"] = responseStatus
-                });
+                    attendees.Add(new Dictionary<string, string>
+                    {
+                        ["name"] = (string)recipient.Name,
+                        ["responseStatus"] = responseStatus,
+                        ["email"] = TryGetRecipientEmail(recipient)
+                    });
+                }
             }
+            catch { /* Recipients unavailable for this item */ }
             dict["attendees"] = attendees;
         }
 
+        // Fetch HTMLBody last — accessing it can affect COM object state
+        try { dict["htmlBody"] = (string)appointment.HTMLBody; }
+        catch { dict["htmlBody"] = null; }
+
         return dict;
+    }
+
+    private static string TryGetOrganizerEmail(dynamic appointment)
+    {
+        try
+        {
+            // PR_SENT_REPRESENTING_EMAIL_ADDRESS — SMTP address of the meeting organizer
+            const string PR_SENT_REPRESENTING_SMTP = "http://schemas.microsoft.com/mapi/proptag/0x0065001E";
+            return (string)appointment.PropertyAccessor.GetProperty(PR_SENT_REPRESENTING_SMTP);
+        }
+        catch { }
+        try { return (string)appointment.Organizer; }
+        catch { return string.Empty; }
+    }
+
+    private static string TryGetRecipientEmail(dynamic recipient)
+    {
+        try
+        {
+            // For Exchange recipients Address is X.500; prefer SmtpAddress via PropertyAccessor
+            const string PR_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E";
+            return (string)recipient.PropertyAccessor.GetProperty(PR_SMTP_ADDRESS);
+        }
+        catch { }
+        try { return (string)recipient.Address; }
+        catch { return string.Empty; }
     }
 
     public Dictionary<string, object?> GetEvent(string eventId)
@@ -528,6 +565,22 @@ public class OutlookCalendarService : IDisposable
         var result = AppointmentToDict(appointment, includeAttendees: true);
         Marshal.ReleaseComObject(appointment);
         return result;
+    }
+
+    public void OpenItem(string eventId)
+    {
+        var ns = GetNamespace();
+        try
+        {
+            dynamic appointment = ns.GetItemFromID(eventId);
+            appointment.Display(false);
+            // Outlook's Inspector holds the reference — releasing here is safe
+            Marshal.ReleaseComObject(appointment);
+        }
+        catch
+        {
+            // Silently ignore — item may no longer exist
+        }
     }
 
     public void RespondToMeeting(string eventId, int responseType)
