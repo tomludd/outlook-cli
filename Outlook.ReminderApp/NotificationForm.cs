@@ -269,7 +269,7 @@ internal sealed class NotificationForm : Form
         }
 
         // Countdown column
-        int countdownWidth = 90;
+        int countdownWidth = 115;
         int countdownLeft = contentRight - countdownWidth;
         var countdownLabel = new Label
         {
@@ -347,7 +347,7 @@ internal sealed class NotificationForm : Form
         {
             var remaining = next.Start - now;
             var timeStr = remaining.TotalHours >= 1
-                ? $"in {(int)remaining.TotalHours}h {remaining.Minutes:D2}m"
+                ? (remaining.Minutes > 0 ? $"in {(int)remaining.TotalHours}h {remaining.Minutes}m" : $"in {(int)remaining.TotalHours}h")
                 : $"in {(int)remaining.TotalMinutes}m";
             tooltip = $"Meeting Reminder - next: {next.Subject} {timeStr}";
         }
@@ -373,7 +373,7 @@ internal sealed class NotificationForm : Form
         var duration = meeting.End - meeting.Start;
         if (duration < TimeSpan.Zero) duration = TimeSpan.Zero;
         var durationText = duration.TotalHours >= 1
-            ? $"{(int)duration.TotalHours}h {duration.Minutes:D2}m"
+            ? (duration.Minutes > 0 ? $"{(int)duration.TotalHours}h {duration.Minutes}m" : $"{(int)duration.TotalHours}h")
             : $"{Math.Max(1, (int)Math.Round(duration.TotalMinutes))}m";
         return $"{durationText}, ends {meeting.End:HH:mm}";
     }

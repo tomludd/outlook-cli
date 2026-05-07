@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Outlook.COM;
 
 namespace Outlook.ReminderApp;
@@ -245,7 +246,50 @@ internal sealed class MeetingReminderService : IDisposable
             FileName = url,
             UseShellExecute = true
         });
+        _ = TryBringTeamsToFrontAsync();
     }
+
+    private static async Task TryBringTeamsToFrontAsync()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(500);
+            var hwnd = FindTeamsWindow();
+            if (hwnd != IntPtr.Zero)
+            {
+                ShowWindow(hwnd, SW_RESTORE);
+                SetForegroundWindow(hwnd);
+                return;
+            }
+        }
+    }
+
+    private static IntPtr FindTeamsWindow()
+    {
+        foreach (var name in (string[])["ms-teams", "Teams"])
+        {
+            foreach (var p in Process.GetProcessesByName(name))
+            {
+                using (p)
+                {
+                    if (p.MainWindowHandle != IntPtr.Zero)
+                        return p.MainWindowHandle;
+                }
+            }
+        }
+        return IntPtr.Zero;
+    }
+
+    private const int SW_RESTORE = 9;
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     private static bool IsOverlapping(ReminderMeeting left, ReminderMeeting right)
     {
