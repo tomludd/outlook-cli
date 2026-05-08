@@ -43,6 +43,8 @@ internal sealed class AgendaForm : Form
     private MeetingDetailForm? _activeDetailForm;
     private bool _needsInitialCenter = true;
     private string _lastMeetingsFingerprint = string.Empty;
+    private int _screenCheckTick;
+    private Screen? _preferredScreen;
 
     public AgendaForm(MeetingReminderService reminderService, MeetingCache cache)
     {
@@ -61,7 +63,7 @@ internal sealed class AgendaForm : Form
         Height = 400;
 
         // Pre-center with initial size so the first restore appears in the right place.
-        var screenArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
+        var screenArea = Screen.FromPoint(Cursor.Position).WorkingArea;
         Left = screenArea.Left + (screenArea.Width - Width) / 2;
         Top = screenArea.Top + (screenArea.Height - Height) / 2;
 
@@ -74,8 +76,18 @@ internal sealed class AgendaForm : Form
         BuildLayout();
 
         _countdownTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-        _countdownTimer.Tick += (_, _) => UpdateCountdown();
+        _countdownTimer.Tick += (_, _) =>
+        {
+            UpdateCountdown();
+            if (++_screenCheckTick >= 30)
+            {
+                _screenCheckTick = 0;
+                PeriodicScreenCheck();
+            }
+        };
         _countdownTimer.Start();
+
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
 
         // SizeChanged fires reliably when the window is restored from Minimized → Normal.
         SizeChanged += (_, _) =>
@@ -100,6 +112,8 @@ internal sealed class AgendaForm : Form
 
         Deactivate += (_, _) =>
         {
+            // Capture cursor screen NOW — before the cursor moves to the taskbar.
+            var screenAtDeactivate = Screen.FromPoint(Cursor.Position);
             BeginInvoke(() =>
             {
                 // Don't minimize if the detail flyout just grabbed focus
@@ -109,8 +123,10 @@ internal sealed class AgendaForm : Form
 
                 _activeDetailForm?.Close();
                 _activeDetailForm = null;
+                _preferredScreen = screenAtDeactivate;
                 WindowState = FormWindowState.Minimized;
                 _needsRefresh = true;
+                _needsInitialCenter = true;
             });
         };
 
@@ -220,9 +236,28 @@ internal sealed class AgendaForm : Form
 
     private void CenterOnScreen()
     {
-        var screen = Screen.PrimaryScreen?.WorkingArea ?? Screen.FromControl(this).WorkingArea;
-        Left = screen.Left + (screen.Width - Width) / 2;
-        Top = screen.Top + (screen.Height - Height) / 2;
+        // Use the screen the cursor was on when the form was last deactivated
+        // (at that point the cursor is on the working screen, not the taskbar).
+        // Fall back to cursor-current screen for the very first open.
+        var workingArea = (_preferredScreen ?? Screen.FromPoint(Cursor.Position)).WorkingArea;
+        Left = workingArea.Left + (workingArea.Width - Width) / 2;
+        Top = workingArea.Top + (workingArea.Height - Height) / 2;
+    }
+
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        if (WindowState == FormWindowState.Normal)
+            BeginInvoke(CenterOnScreen);
+    }
+
+    private void PeriodicScreenCheck()
+    {
+        if (WindowState != FormWindowState.Normal) return;
+        // If the screen the form is currently on no longer exists, reposition to cursor screen.
+        var currentScreen = Screen.FromControl(this);
+        bool stillValid = Screen.AllScreens.Any(s => s.Bounds.Equals(currentScreen.Bounds));
+        if (!stillValid)
+            BeginInvoke(CenterOnScreen);
     }
 
     private void RefreshAgenda()
@@ -251,6 +286,13 @@ internal sealed class AgendaForm : Form
         }
 
         var meetings = _reminderService.GetTodaysMeetings(now, _cache.All);
+
+        // Always reposition if requested — must happen before the fingerprint early-exit.
+        if (_needsInitialCenter)
+        {
+            _needsInitialCenter = false;
+            CenterOnScreen();
+        }
 
         var fingerprint = ComputeMeetingsFingerprint(meetings, now);
         if (fingerprint == _lastMeetingsFingerprint)
@@ -323,17 +365,9 @@ internal sealed class AgendaForm : Form
             y = 60;
         }
 
-        int maxHeight = (Screen.PrimaryScreen?.WorkingArea.Height ?? 768) * 3 / 4;
+        int maxHeight = Screen.FromPoint(Cursor.Position).WorkingArea.Height * 3 / 4;
         int contentHeight = y + 36; // rows + header
         Height = Math.Min(Math.Max(contentHeight, 100), maxHeight);
-
-        // Only center on first open (when coming from Minimized via WndProc/SizeChanged).
-        // Skipping CenterOnScreen here prevents the window jumping on every cache refresh.
-        if (_needsInitialCenter)
-        {
-            _needsInitialCenter = false;
-            CenterOnScreen();
-        }
 
         _listPanel.ResumeLayout();
         ResumeLayout();

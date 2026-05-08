@@ -20,6 +20,7 @@ internal sealed class NotificationForm : Form
     private IReadOnlyList<ReminderMeeting> _currentMeetings = Array.Empty<ReminderMeeting>();
     private ReminderMeeting? _nextMeeting;
     private IReadOnlyList<string> _renderedMeetingIds = Array.Empty<string>();
+    private int _screenCheckTick;
 
     public NotificationForm(MeetingReminderService reminderService, MeetingCache cache)
     {
@@ -113,6 +114,24 @@ internal sealed class NotificationForm : Form
         _reminderService.TryAutoOpenDueMeetings(_currentMeetings, now);
         UpdateRowCountdowns(now);
         UpdateTrayIcon(now);
+        if (++_screenCheckTick >= 30)
+        {
+            _screenCheckTick = 0;
+            PeriodicScreenCheck();
+        }
+    }
+
+    private void PeriodicScreenCheck()
+    {
+        var primary = Screen.PrimaryScreen;
+        if (primary is null || !Visible || _renderedMeetingIds.Count == 0) return;
+        // Check if the form's current screen matches the primary screen.
+        var currentScreen = Screen.FromControl(this);
+        if (!currentScreen.Bounds.Equals(primary.Bounds))
+        {
+            ApplyPreferredSizeAndPosition(_renderedMeetingIds.Count);
+            EnsureTopMostWindow();
+        }
     }
 
     private void OnCacheRefreshed(object? sender, EventArgs e)
@@ -470,17 +489,20 @@ internal sealed class NotificationForm : Form
     {
         if (meeting.IsOngoing(now))
         {
-            return "ONGOING";
+            var remaining = meeting.End - now;
+            if (remaining < TimeSpan.Zero) remaining = TimeSpan.Zero;
+            var totalMinutes = (int)remaining.TotalMinutes;
+            return $"-{totalMinutes:D2}:{remaining.Seconds:D2}";
         }
 
-        var remaining = meeting.Start - now;
-        if (remaining < TimeSpan.Zero)
+        var timeUntilStart = meeting.Start - now;
+        if (timeUntilStart < TimeSpan.Zero)
         {
-            remaining = TimeSpan.Zero;
+            timeUntilStart = TimeSpan.Zero;
         }
 
-        var totalMinutes = (int)remaining.TotalMinutes;
-        return $"{totalMinutes:D2}:{remaining.Seconds:D2}";
+        var minutesUntilStart = (int)timeUntilStart.TotalMinutes;
+        return $"{minutesUntilStart:D2}:{timeUntilStart.Seconds:D2}";
     }
 
     private void UpdateRowCountdowns(DateTime now)
