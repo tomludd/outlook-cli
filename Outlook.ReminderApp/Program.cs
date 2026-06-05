@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using System.Threading;
 
 namespace Outlook.ReminderApp;
 
@@ -16,12 +17,20 @@ internal static class Program
 
         ApplicationConfiguration.Initialize();
 
+        var uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
+
         using var reminderService = new MeetingReminderService();
         using var cache = new MeetingCache(reminderService);
+        using var syncScheduler = new SyncScheduler(uiContext);
+        var syncStore = new SyncConfigStore();
+        var syncUi = new SyncUiController(syncStore, syncScheduler);
+
+        syncScheduler.SetRules(syncStore.Load());
+        syncScheduler.Start();
         cache.Start();
 
-        var agendaForm = new AgendaForm(reminderService, cache);
+        var agendaForm = new AgendaForm(reminderService, cache, syncUi);
         agendaForm.Show();
-        Application.Run(new NotificationForm(reminderService, cache));
+        Application.Run(new NotificationForm(reminderService, cache, syncUi));
     }
 }

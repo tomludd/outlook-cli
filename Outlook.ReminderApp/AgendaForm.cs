@@ -34,6 +34,7 @@ internal sealed class AgendaForm : Form
     private readonly ToolWindowHandle _ownerHandle = new();
     private readonly MeetingReminderService _reminderService;
     private readonly MeetingCache _cache;
+    private readonly SyncUiController _syncUi;
     private Panel _listPanel = null!;
     private System.Windows.Forms.Timer _countdownTimer = null!;
     private bool _needsRefresh = true;
@@ -46,10 +47,11 @@ internal sealed class AgendaForm : Form
     private int _screenCheckTick;
     private Screen? _preferredScreen;
 
-    public AgendaForm(MeetingReminderService reminderService, MeetingCache cache)
+    public AgendaForm(MeetingReminderService reminderService, MeetingCache cache, SyncUiController syncUi)
     {
         _reminderService = reminderService;
         _cache = cache;
+        _syncUi = syncUi;
 
         AutoScaleMode = AutoScaleMode.None;
         FormBorderStyle = FormBorderStyle.None;
@@ -72,6 +74,8 @@ internal sealed class AgendaForm : Form
 
         var appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         if (appIcon is not null) Icon = appIcon;
+
+        ContextMenuStrip = BuildContextMenu();
 
         BuildLayout();
 
@@ -135,6 +139,13 @@ internal sealed class AgendaForm : Form
             if (WindowState == FormWindowState.Normal)
                 RefreshAgenda();
         };
+    }
+
+    private ContextMenuStrip BuildContextMenu()
+    {
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("Sync settings...", null, (_, _) => _syncUi.ShowConfig(this));
+        return menu;
     }
 
     // Set Opacity=0 before the restore paints so the window appears fully built

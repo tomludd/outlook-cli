@@ -1,6 +1,4 @@
-using Outlook.COM;
-
-namespace Outlook.Cli;
+namespace Outlook.COM;
 
 public enum SyncMode
 {

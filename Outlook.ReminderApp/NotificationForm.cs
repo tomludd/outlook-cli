@@ -12,6 +12,7 @@ internal sealed class NotificationForm : Form
 
     private readonly MeetingReminderService _reminderService;
     private readonly MeetingCache _cache;
+    private readonly SyncUiController _syncUi;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly FlowLayoutPanel _meetingList;
     private readonly NotifyIcon _trayIcon;
@@ -22,10 +23,11 @@ internal sealed class NotificationForm : Form
     private IReadOnlyList<string> _renderedMeetingIds = Array.Empty<string>();
     private int _screenCheckTick;
 
-    public NotificationForm(MeetingReminderService reminderService, MeetingCache cache)
+    public NotificationForm(MeetingReminderService reminderService, MeetingCache cache, SyncUiController syncUi)
     {
         _reminderService = reminderService;
         _cache = cache;
+        _syncUi = syncUi;
 
         AutoScaleMode = AutoScaleMode.None;
         FormBorderStyle = FormBorderStyle.None;
@@ -71,6 +73,7 @@ internal sealed class NotificationForm : Form
         _timer.Tick += (_, _) => OnTick();
 
         var trayMenu = new ContextMenuStrip();
+        trayMenu.Items.Add("Sync settings...", null, (_, _) => _syncUi.ShowConfig(this));
         trayMenu.Items.Add("Exit", null, (_, _) => Application.Exit());
 
         _trayBellIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? CreateTrayBellIcon();
