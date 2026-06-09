@@ -451,6 +451,8 @@ public class OutlookCalendarService : IDisposable
 
     private Dictionary<string, object?> AppointmentToDict(dynamic appointment, bool includeAttendees = false)
     {
+        bool isCancelled = IsCancelledAppointment(appointment);
+
         var dict = new Dictionary<string, object?>
         {
             ["id"] = (string)appointment.EntryID,
@@ -461,7 +463,7 @@ public class OutlookCalendarService : IDisposable
             ["organizer"] = (string)appointment.Organizer,
             ["isRecurring"] = (bool)appointment.IsRecurring,
             ["isMeeting"] = (int)appointment.MeetingStatus == OlMeeting,
-            ["isCancelled"] = (int)appointment.MeetingStatus is OlMeetingCanceled or OlMeetingReceivedAndCanceled,
+            ["isCancelled"] = isCancelled,
             ["responseRequested"] = (bool)appointment.ResponseRequested
         };
 
@@ -521,6 +523,50 @@ public class OutlookCalendarService : IDisposable
         catch { dict["htmlBody"] = null; }
 
         return dict;
+    }
+
+    private static bool IsCancelledAppointment(dynamic appointment)
+    {
+        try
+        {
+            int meetingStatus = (int)appointment.MeetingStatus;
+            if (meetingStatus is OlMeetingCanceled or OlMeetingReceivedAndCanceled)
+                return true;
+        }
+        catch { }
+
+        try
+        {
+            var messageClass = ((string?)appointment.MessageClass) ?? string.Empty;
+            if (messageClass.Contains("IPM.Schedule.Meeting.Canceled", StringComparison.OrdinalIgnoreCase) ||
+                messageClass.Contains("IPM.Schedule.Meeting.Cancellation", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        catch { }
+
+        try
+        {
+            var subject = ((string?)appointment.Subject) ?? string.Empty;
+            if (subject.StartsWith("Canceled:", StringComparison.OrdinalIgnoreCase) ||
+                subject.StartsWith("Cancelled:", StringComparison.OrdinalIgnoreCase) ||
+                subject.StartsWith("Avlyst:", StringComparison.OrdinalIgnoreCase) ||
+                subject.StartsWith("Innstilt:", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        catch { }
+
+        try
+        {
+            var body = ((string?)appointment.Body) ?? string.Empty;
+            if (body.Contains("organizer canceled this meeting", StringComparison.OrdinalIgnoreCase) ||
+                body.Contains("organiser canceled this meeting", StringComparison.OrdinalIgnoreCase) ||
+                body.Contains("arrangøren har avlyst dette møtet", StringComparison.OrdinalIgnoreCase) ||
+                body.Contains("møtet er avlyst", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        catch { }
+
+        return false;
     }
 
     private static string TryGetOrganizerEmail(dynamic appointment)
