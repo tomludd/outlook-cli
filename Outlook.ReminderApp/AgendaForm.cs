@@ -10,6 +10,8 @@ internal sealed class AgendaForm : Form
     private const int WsExToolWindow = 0x00000080;
     private const int WmSysCommand = 0x0112;
     private const int ScRestore = 0xF120;
+    private const int FadeDurationMs = 100;
+    private const int FadeTickIntervalMs = 20;
 
     // A hidden WS_EX_TOOLWINDOW native window used as the owner of AgendaForm.
     // Owned windows are excluded from Alt+Tab; WS_EX_APPWINDOW on AgendaForm
@@ -46,6 +48,8 @@ internal sealed class AgendaForm : Form
     private string _lastMeetingsFingerprint = string.Empty;
     private int _screenCheckTick;
     private Screen? _preferredScreen;
+    private System.Windows.Forms.Timer? _fadeTimer;
+    private DateTime _fadeStartUtc;
 
     public AgendaForm(MeetingReminderService reminderService, MeetingCache cache, SyncUiController syncUi)
     {
@@ -149,7 +153,7 @@ internal sealed class AgendaForm : Form
     }
 
     // Set Opacity=0 before the restore paints so the window appears fully built
-    // in a single frame (layout rebuild happens while invisible).
+    // in a single frame (layout rebuild happens while invisible), then fade in.
     protected override void WndProc(ref Message m)
     {
         if (m.Msg == WmSysCommand && ((int)m.WParam & 0xFFF0) == ScRestore && IsHandleCreated)
@@ -157,10 +161,35 @@ internal sealed class AgendaForm : Form
             _needsInitialCenter = true;
             Opacity = 0;
             base.WndProc(ref m); // triggers WM_SIZE → SizeChanged → RefreshAgenda
-            Opacity = 1;
+            StartFadeIn();
             return;
         }
         base.WndProc(ref m);
+    }
+
+    private void StartFadeIn()
+    {
+        _fadeTimer?.Stop();
+        _fadeTimer?.Dispose();
+
+        _fadeStartUtc = DateTime.UtcNow;
+        _fadeTimer = new System.Windows.Forms.Timer { Interval = FadeTickIntervalMs };
+        _fadeTimer.Tick += (_, _) =>
+        {
+            var elapsedMs = (DateTime.UtcNow - _fadeStartUtc).TotalMilliseconds;
+            var progress = Math.Clamp(elapsedMs / FadeDurationMs, 0, 1);
+            // Cubic ease-out keeps the same duration while reducing perceived pop-in.
+            var eased = 1 - Math.Pow(1 - progress, 3);
+            Opacity = eased;
+
+            if (progress >= 1)
+            {
+                _fadeTimer.Stop();
+                _fadeTimer.Dispose();
+                _fadeTimer = null;
+            }
+        };
+        _fadeTimer.Start();
     }
 
     protected override CreateParams CreateParams
@@ -274,9 +303,14 @@ internal sealed class AgendaForm : Form
     private void RefreshAgenda()
     {
         var now = DateTime.Now;
+        bool shouldCenterOnShow = _needsInitialCenter;
+        _needsInitialCenter = false;
 
         if (!_cache.IsLoaded)
         {
+            if (shouldCenterOnShow)
+                CenterOnScreen();
+
             // Data not yet available — ensure loading label is visible and wait for Refreshed event.
             if (_listPanel.Controls.Count == 0 ||
                 _listPanel.Controls[0] is not Label { Text: "Loading..." })
@@ -298,16 +332,12 @@ internal sealed class AgendaForm : Form
 
         var meetings = _reminderService.GetTodaysMeetings(now, _cache.All);
 
-        // Always reposition if requested — must happen before the fingerprint early-exit.
-        if (_needsInitialCenter)
-        {
-            _needsInitialCenter = false;
-            CenterOnScreen();
-        }
-
         var fingerprint = ComputeMeetingsFingerprint(meetings, now);
         if (fingerprint == _lastMeetingsFingerprint)
         {
+            if (shouldCenterOnShow)
+                CenterOnScreen();
+
             UpdateCountdown();
             return;
         }
@@ -379,6 +409,9 @@ internal sealed class AgendaForm : Form
         int maxHeight = Screen.FromPoint(Cursor.Position).WorkingArea.Height * 3 / 4;
         int contentHeight = y + 36; // rows + header
         Height = Math.Min(Math.Max(contentHeight, 100), maxHeight);
+
+        if (shouldCenterOnShow)
+            CenterOnScreen();
 
         _listPanel.ResumeLayout();
         ResumeLayout();
@@ -739,6 +772,8 @@ internal sealed class AgendaForm : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         base.OnFormClosed(e);
+        _fadeTimer?.Stop();
+        _fadeTimer?.Dispose();
         _countdownTimer.Dispose();
         _ownerHandle.Dispose();
     }
