@@ -2,8 +2,8 @@ namespace Outlook.ReminderApp;
 
 /// <summary>
 /// Maintains a periodically refreshed in-memory snapshot of meetings fetched from Outlook.
-/// Must be accessed from the UI (STA) thread — uses a WinForms timer internally so all
-/// callbacks fire on the message loop without any cross-thread concerns.
+/// The Outlook COM call runs on a dedicated background STA thread so the UI thread is never
+/// blocked. Results are marshalled back to the UI thread before updating state and raising events.
 /// </summary>
 internal sealed class MeetingCache : IDisposable
 {
@@ -11,8 +11,10 @@ internal sealed class MeetingCache : IDisposable
     private static readonly TimeSpan QueryFutureWindow  = TimeSpan.FromHours(8);
 
     private readonly MeetingReminderService _service;
+    private readonly SynchronizationContext _uiContext;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly int _refreshIntervalMs;
+    private int _isRefreshing; // 0 = idle, 1 = in progress; accessed via Interlocked
 
     /// <summary>
     /// All fetched meetings (including cancelled), covering roughly now ±8 h.
@@ -29,9 +31,10 @@ internal sealed class MeetingCache : IDisposable
     /// <summary>Raised on the UI thread after each refresh attempt (successful or not).</summary>
     public event EventHandler? Refreshed;
 
-    public MeetingCache(MeetingReminderService service, int refreshIntervalSeconds = 30)
+    public MeetingCache(MeetingReminderService service, SynchronizationContext uiContext, int refreshIntervalSeconds = 30)
     {
         _service = service;
+        _uiContext = uiContext;
         _refreshIntervalMs = refreshIntervalSeconds * 1000;
         _timer = new System.Windows.Forms.Timer { Interval = _refreshIntervalMs };
         _timer.Tick += (_, _) => Refresh();
@@ -54,20 +57,39 @@ internal sealed class MeetingCache : IDisposable
         startupTimer.Start();
     }
 
-    /// <summary>Immediately fetches fresh data from Outlook and raises <see cref="Refreshed"/>.</summary>
+    /// <summary>
+    /// Triggers a refresh on a background STA thread so the UI message loop stays responsive
+    /// even if Outlook is slow or temporarily unresponsive. Skipped if a refresh is already running.
+    /// </summary>
     public void Refresh()
     {
+        if (Interlocked.CompareExchange(ref _isRefreshing, 1, 0) != 0)
+            return;
+
         var now = DateTime.Now;
-        try
+        var thread = new Thread(() =>
         {
-            All = _service.FetchAll(now.Subtract(QueryHistoryWindow), now.Add(QueryFutureWindow));
-            LastRefreshed = now;
-        }
-        catch
-        {
-            // Keep stale data on error; LastRefreshed not updated so callers can detect staleness.
-        }
-        Refreshed?.Invoke(this, EventArgs.Empty);
+            IReadOnlyList<ReminderMeeting>? result = null;
+            try
+            {
+                result = _service.FetchAll(now.Subtract(QueryHistoryWindow), now.Add(QueryFutureWindow));
+            }
+            catch { }
+
+            _uiContext.Post(_ =>
+            {
+                if (result is not null)
+                {
+                    All = result;
+                    LastRefreshed = now;
+                }
+                Interlocked.Exchange(ref _isRefreshing, 0);
+                Refreshed?.Invoke(this, EventArgs.Empty);
+            }, null);
+        });
+        thread.IsBackground = true;
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
     }
 
     public void Dispose() => _timer.Dispose();

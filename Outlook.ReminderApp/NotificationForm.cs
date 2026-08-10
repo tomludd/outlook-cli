@@ -595,6 +595,8 @@ internal sealed class NotificationForm : Form
         _trayIcon.Dispose();
         _trayBellIcon.Dispose();
         base.OnFormClosed(e);
+        // Force-terminate the process so any threads blocked on Outlook COM are killed immediately.
+        Environment.Exit(0);
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
