@@ -39,7 +39,7 @@ public static class CalendarCommand
             var end            = ParseDate(ctx.GetValue(toArg)!);
             var account        = ctx.GetValue(accountOpt);
             var includeBlocked = ctx.GetValue(includeBlockedOpt);
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             var events = svc.ListEvents(start, end, account);
             if (!includeBlocked)
                 events = events.Where(e => !e.TryGetValue("body", out var b) || b is not string s || !s.Contains("[outlook-sync:")).ToList();
@@ -60,7 +60,7 @@ public static class CalendarCommand
         cmd.SetAction(ctx =>
         {
             var id = ctx.GetValue(idArg)!;
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             var ev = svc.GetEvent(id);
             Console.WriteLine(JsonSerializer.Serialize(ev, JsonOptions));
         });
@@ -100,7 +100,7 @@ public static class CalendarCommand
             var endDt   = endDate != null && endTime != null ? ParseDateTime(endDate, endTime)
                         : endTime != null                    ? ParseDateTime(startDate, endTime)
                         : startDt.AddMinutes(30);
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             var id = svc.CreateEvent(subject, startDt, endDt, location, body, meeting, attendees, account);
             Console.WriteLine(JsonSerializer.Serialize(new { success = true, eventId = id }, JsonOptions));
         });
@@ -141,7 +141,7 @@ public static class CalendarCommand
             DateTime? endDt = endDate != null && endTime != null ? ParseDateTime(endDate, endTime)
                             : endDate != null                     ? ParseDate(endDate)
                             : null;
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             var result = svc.UpdateEvent(id, subject, startDt, endDt, location, body, account);
             Console.WriteLine(JsonSerializer.Serialize(new { success = result }, JsonOptions));
         });
@@ -159,7 +159,7 @@ public static class CalendarCommand
         {
             var id      = ctx.GetValue(idArg)!;
             var account = ctx.GetValue(accountOpt);
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             try
             {
                 var result = svc.DeleteEvent(id, account);
@@ -196,7 +196,7 @@ public static class CalendarCommand
             var workStart = ctx.GetValue(workStartOpt);
             var workEnd   = ctx.GetValue(workEndOpt);
             var account   = ctx.GetValue(accountOpt);
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             var slots = svc.FindFreeSlots(start, end, duration, workStart, workEnd, account);
             Console.WriteLine(JsonSerializer.Serialize(slots, JsonOptions));
         });
@@ -214,7 +214,7 @@ public static class CalendarCommand
         {
             var id      = ctx.GetValue(idArg)!;
             var account = ctx.GetValue(accountOpt);
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             try
             {
                 var status = svc.GetAttendeeStatus(id, account);
@@ -234,7 +234,7 @@ public static class CalendarCommand
         var cmd = new Command("calendars", "List available calendars in Outlook");
         cmd.SetAction(_ =>
         {
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             var calendars = svc.GetCalendars();
             Console.WriteLine(JsonSerializer.Serialize(calendars, JsonOptions));
         });
@@ -260,7 +260,7 @@ public static class CalendarCommand
                 "tentative" => 2, // OlResponseTentative
                 _ => throw new ArgumentException($"Invalid response '{response}'. Use: accept, decline, or tentative.")
             };
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             try
             {
                 svc.RespondToMeeting(id, responseType);

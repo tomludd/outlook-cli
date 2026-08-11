@@ -141,12 +141,15 @@ internal sealed class SyncRuleEditorForm : Form
             comboBox.Text = currentValue;
         }
 
-        var thread = new Thread(() =>
+        // Doesn't touch COM directly — OutlookCalendarService routes every real call through
+        // Outlook.COM's dedicated STA worker (see ComTimeout), so this thread doesn't need to
+        // be STA itself.
+        Task.Run(() =>
         {
             List<string> names = new();
             try
             {
-                using var calService = new OutlookCalendarService();
+                var calService = new OutlookCalendarService();
                 var accounts = calService.ListAccounts();
                 foreach (var account in accounts)
                 {
@@ -176,12 +179,7 @@ internal sealed class SyncRuleEditorForm : Form
                     comboBox.Text = currentValue;
                 }
             });
-        })
-        {
-            IsBackground = true
-        };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
+        });
     }
 
     private static string GetComboText(ComboBox comboBox)

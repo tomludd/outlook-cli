@@ -12,7 +12,7 @@ public static class AccountsCommand
         {
             try
             {
-                using var calService = new OutlookCalendarService();
+                var calService = new OutlookCalendarService();
                 var accounts = calService.ListAccounts();
                 if (accounts.Count == 0)
                 {

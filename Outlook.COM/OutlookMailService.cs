@@ -4,7 +4,7 @@ using System.Runtime.Versioning;
 namespace Outlook.COM;
 
 [SupportedOSPlatform("windows")]
-public class OutlookMailService : IDisposable
+public class OutlookMailService
 {
     // Outlook folder constants
     private const int OlFolderInbox = 6;
@@ -17,21 +17,7 @@ public class OutlookMailService : IDisposable
     private const int OlImportanceHigh = 2;
     private const int OlByValue = 1;
 
-    private dynamic? _outlookApp;
-
-    private dynamic GetOutlookApp()
-    {
-        if (_outlookApp != null) return _outlookApp;
-
-        var type = Type.GetTypeFromProgID("Outlook.Application")
-            ?? throw new InvalidOperationException(
-                "Microsoft Outlook is not installed or not registered on this system.");
-
-        _outlookApp = Activator.CreateInstance(type)
-            ?? throw new InvalidOperationException("Failed to create Outlook.Application instance.");
-
-        return _outlookApp;
-    }
+    private dynamic GetOutlookApp() => OutlookComHost.GetApp();
 
     private dynamic GetNamespace() => GetOutlookApp().GetNamespace("MAPI");
 
@@ -79,6 +65,9 @@ public class OutlookMailService : IDisposable
     }
 
     public List<Dictionary<string, object?>> ListEmails(string? folder, int count, string? filterSubject, string? filterSender, string? account = null, string? receivedAfter = null, string? receivedBefore = null)
+        => OutlookComInvoker.Run(() => ListEmailsCore(folder, count, filterSubject, filterSender, account, receivedAfter, receivedBefore));
+
+    private List<Dictionary<string, object?>> ListEmailsCore(string? folder, int count, string? filterSubject, string? filterSender, string? account, string? receivedAfter, string? receivedBefore)
     {
         if (!string.IsNullOrEmpty(account))
             return CollectEmails(GetFolder(folder, account), count, filterSubject, filterSender, account, receivedAfter, receivedBefore);
@@ -95,11 +84,20 @@ public class OutlookMailService : IDisposable
         var all = new List<Dictionary<string, object?>>();
         var ns = GetNamespace();
         var stores = ns.Stores;
-        for (int i = 1; i <= stores.Count; i++)
+        try
         {
-            var store = stores.Item(i);
-            try { all.AddRange(CollectEmails(store.GetDefaultFolder(folderType), count, filterSubject, filterSender, (string)store.DisplayName, receivedAfter, receivedBefore)); }
-            catch { /* Store may not have this folder */ }
+            for (int i = 1; i <= stores.Count; i++)
+            {
+                dynamic? store = null;
+                try { store = stores.Item(i); all.AddRange(CollectEmails(store.GetDefaultFolder(folderType), count, filterSubject, filterSender, (string)store.DisplayName, receivedAfter, receivedBefore)); }
+                catch { /* Store may not have this folder */ }
+                finally { OutlookComHost.Release(store); }
+            }
+        }
+        finally
+        {
+            OutlookComHost.Release(stores);
+            OutlookComHost.Release(ns);
         }
 
         all.Sort((a, b) => string.Compare(b["receivedTime"]?.ToString(), a["receivedTime"]?.ToString(), StringComparison.Ordinal));
@@ -127,20 +125,30 @@ public class OutlookMailService : IDisposable
 
         var emails = new List<Dictionary<string, object?>>();
         int limit = Math.Min(count, items.Count);
-        for (int i = 1; i <= limit; i++)
+        try
         {
-            try
+            for (int i = 1; i <= limit; i++)
             {
-                var email = MailToDict(items.Item(i), includeBody: false);
-                if (accountName != null) email["account"] = accountName;
-                emails.Add(email);
+                dynamic? item = null;
+                try
+                {
+                    item = items.Item(i);
+                    var email = MailToDict(item, includeBody: false);
+                    if (accountName != null) email["account"] = accountName;
+                    emails.Add(email);
+                }
+                catch { /* Skip non-mail items (meeting requests, etc.) */ }
+                finally { OutlookComHost.Release(item); }
             }
-            catch { /* Skip non-mail items (meeting requests, etc.) */ }
         }
+        finally { OutlookComHost.Release(items); }
         return emails;
     }
 
     public Dictionary<string, object?> GetEmail(string entryId)
+        => OutlookComInvoker.Run(() => GetEmailCore(entryId));
+
+    private Dictionary<string, object?> GetEmailCore(string entryId)
     {
         var ns = GetNamespace();
         dynamic item;
@@ -150,72 +158,102 @@ public class OutlookMailService : IDisposable
         }
         catch
         {
+            OutlookComHost.Release(ns);
             throw new InvalidOperationException($"Email not found with ID: {entryId}");
         }
-        return MailToDict(item, includeBody: true);
+        try
+        {
+            return MailToDict(item, includeBody: true);
+        }
+        finally
+        {
+            OutlookComHost.Release(item);
+            OutlookComHost.Release(ns);
+        }
     }
 
     public string SendEmail(string to, string subject, string body, string? cc, string? bcc,
         bool isHtml, string? importance, string[]? attachmentPaths, string? account = null)
+        => OutlookComInvoker.Run(() => SendEmailCore(to, subject, body, cc, bcc, isHtml, importance, attachmentPaths, account));
+
+    private string SendEmailCore(string to, string subject, string body, string? cc, string? bcc,
+        bool isHtml, string? importance, string[]? attachmentPaths, string? account)
     {
         var app = GetOutlookApp();
         var mail = app.CreateItem(OlMailItem);
 
-        // Set the sending account if specified
-        if (!string.IsNullOrEmpty(account))
+        try
         {
-            var accounts = app.Session.Accounts;
-            bool found = false;
-            for (int i = 1; i <= accounts.Count; i++)
+            // Set the sending account if specified
+            if (!string.IsNullOrEmpty(account))
             {
-                var acc = accounts.Item(i);
-                if (string.Equals((string)acc.DisplayName, account, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals((string)acc.SmtpAddress, account, StringComparison.OrdinalIgnoreCase))
+                var accounts = app.Session.Accounts;
+                try
                 {
-                    mail.SendUsingAccount = acc;
-                    found = true;
-                    break;
+                    bool found = false;
+                    for (int i = 1; i <= accounts.Count; i++)
+                    {
+                        var acc = accounts.Item(i);
+                        try
+                        {
+                            if (string.Equals((string)acc.DisplayName, account, StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals((string)acc.SmtpAddress, account, StringComparison.OrdinalIgnoreCase))
+                            {
+                                mail.SendUsingAccount = acc;
+                                found = true;
+                                break;
+                            }
+                        }
+                        finally { OutlookComHost.Release(acc); }
+                    }
+                    if (!found)
+                        throw new InvalidOperationException($"Account not found: {account}. Use list_accounts to see available accounts.");
+                }
+                finally { OutlookComHost.Release(accounts); }
+            }
+
+            mail.To = to;
+            mail.Subject = subject;
+
+            if (isHtml)
+                mail.HTMLBody = body;
+            else
+                mail.Body = body;
+
+            if (!string.IsNullOrEmpty(cc)) mail.CC = cc;
+            if (!string.IsNullOrEmpty(bcc)) mail.BCC = bcc;
+
+            mail.Importance = importance?.ToLowerInvariant() switch
+            {
+                "high" => OlImportanceHigh,
+                "low" => OlImportanceLow,
+                _ => OlImportanceNormal
+            };
+
+            if (attachmentPaths != null)
+            {
+                foreach (var path in attachmentPaths)
+                {
+                    if (!File.Exists(path))
+                        throw new FileNotFoundException($"Attachment not found: {path}");
+                    mail.Attachments.Add(path, OlByValue);
                 }
             }
-            if (!found)
-                throw new InvalidOperationException($"Account not found: {account}. Use list_accounts to see available accounts.");
+
+            mail.Send();
+            string entryId = mail.EntryID ?? "";
+            return entryId;
         }
-
-        mail.To = to;
-        mail.Subject = subject;
-
-        if (isHtml)
-            mail.HTMLBody = body;
-        else
-            mail.Body = body;
-
-        if (!string.IsNullOrEmpty(cc)) mail.CC = cc;
-        if (!string.IsNullOrEmpty(bcc)) mail.BCC = bcc;
-
-        mail.Importance = importance?.ToLowerInvariant() switch
+        finally
         {
-            "high" => OlImportanceHigh,
-            "low" => OlImportanceLow,
-            _ => OlImportanceNormal
-        };
-
-        if (attachmentPaths != null)
-        {
-            foreach (var path in attachmentPaths)
-            {
-                if (!File.Exists(path))
-                    throw new FileNotFoundException($"Attachment not found: {path}");
-                mail.Attachments.Add(path, OlByValue);
-            }
+            Marshal.ReleaseComObject(mail);
         }
-
-        mail.Send();
-        string entryId = mail.EntryID ?? "";
-        Marshal.ReleaseComObject(mail);
-        return entryId;
     }
 
     public string ReplyToEmail(string entryId, string body, bool replyAll)
+        => OutlookComInvoker.Run(() => ReplyToEmailCore(entryId, body, replyAll));
+
+    private string ReplyToEmailCore(string entryId, string body, bool replyAll)
     {
         var ns = GetNamespace();
         dynamic original;
@@ -225,20 +263,31 @@ public class OutlookMailService : IDisposable
         }
         catch
         {
+            OutlookComHost.Release(ns);
             throw new InvalidOperationException($"Email not found with ID: {entryId}");
         }
 
-        var reply = replyAll ? original.ReplyAll() : original.Reply();
-        reply.Body = body + reply.Body;
-        reply.Send();
-
-        string replyId = reply.EntryID ?? "";
-        Marshal.ReleaseComObject(reply);
-        Marshal.ReleaseComObject(original);
-        return replyId;
+        dynamic? reply = null;
+        try
+        {
+            reply = replyAll ? original.ReplyAll() : original.Reply();
+            reply.Body = body + reply.Body;
+            reply.Send();
+            string replyId = reply.EntryID ?? "";
+            return replyId;
+        }
+        finally
+        {
+            OutlookComHost.Release(reply);
+            Marshal.ReleaseComObject(original);
+            OutlookComHost.Release(ns);
+        }
     }
 
     public string ForwardEmail(string entryId, string to, string? additionalBody)
+        => OutlookComInvoker.Run(() => ForwardEmailCore(entryId, to, additionalBody));
+
+    private string ForwardEmailCore(string entryId, string to, string? additionalBody)
     {
         var ns = GetNamespace();
         dynamic original;
@@ -248,23 +297,34 @@ public class OutlookMailService : IDisposable
         }
         catch
         {
+            OutlookComHost.Release(ns);
             throw new InvalidOperationException($"Email not found with ID: {entryId}");
         }
 
-        var fwd = original.Forward();
-        fwd.To = to;
-        if (!string.IsNullOrEmpty(additionalBody))
-            fwd.Body = additionalBody + fwd.Body;
+        dynamic? fwd = null;
+        try
+        {
+            fwd = original.Forward();
+            fwd.To = to;
+            if (!string.IsNullOrEmpty(additionalBody))
+                fwd.Body = additionalBody + fwd.Body;
 
-        fwd.Send();
-
-        string fwdId = fwd.EntryID ?? "";
-        Marshal.ReleaseComObject(fwd);
-        Marshal.ReleaseComObject(original);
-        return fwdId;
+            fwd.Send();
+            string fwdId = fwd.EntryID ?? "";
+            return fwdId;
+        }
+        finally
+        {
+            OutlookComHost.Release(fwd);
+            Marshal.ReleaseComObject(original);
+            OutlookComHost.Release(ns);
+        }
     }
 
     public List<Dictionary<string, object?>> SearchEmails(string query, int maxResults, string? account = null)
+        => OutlookComInvoker.Run(() => SearchEmailsCore(query, maxResults, account));
+
+    private List<Dictionary<string, object?>> SearchEmailsCore(string query, int maxResults, string? account)
     {
         var filter = $"@SQL=(\"urn:schemas:httpmail:subject\" LIKE '%{EscapeDasl(query)}%' " +
                      $"OR \"urn:schemas:httpmail:textdescription\" LIKE '%{EscapeDasl(query)}%' " +
@@ -276,16 +336,23 @@ public class OutlookMailService : IDisposable
             items.Sort("[ReceivedTime]", true);
             var results = new List<Dictionary<string, object?>>();
             int limit = Math.Min(maxResults, items.Count);
-            for (int i = 1; i <= limit; i++)
+            try
             {
-                try
+                for (int i = 1; i <= limit; i++)
                 {
-                    var email = MailToDict(items.Item(i), includeBody: false);
-                    if (accountName != null) email["account"] = accountName;
-                    results.Add(email);
+                    dynamic? item = null;
+                    try
+                    {
+                        item = items.Item(i);
+                        var email = MailToDict(item, includeBody: false);
+                        if (accountName != null) email["account"] = accountName;
+                        results.Add(email);
+                    }
+                    catch { /* Skip non-mail items */ }
+                    finally { OutlookComHost.Release(item); }
                 }
-                catch { /* Skip non-mail items */ }
             }
+            finally { OutlookComHost.Release(items); }
             return results;
         }
 
@@ -296,11 +363,20 @@ public class OutlookMailService : IDisposable
         var ns = GetNamespace();
         var all = new List<Dictionary<string, object?>>();
         var stores = ns.Stores;
-        for (int i = 1; i <= stores.Count; i++)
+        try
         {
-            var store = stores.Item(i);
-            try { all.AddRange(SearchFolder(store.GetDefaultFolder(OlFolderInbox), (string)store.DisplayName)); }
-            catch { /* Store may not have inbox */ }
+            for (int i = 1; i <= stores.Count; i++)
+            {
+                dynamic? store = null;
+                try { store = stores.Item(i); all.AddRange(SearchFolder(store.GetDefaultFolder(OlFolderInbox), (string)store.DisplayName)); }
+                catch { /* Store may not have inbox */ }
+                finally { OutlookComHost.Release(store); }
+            }
+        }
+        finally
+        {
+            OutlookComHost.Release(stores);
+            OutlookComHost.Release(ns);
         }
 
         all.Sort((a, b) => string.Compare(b["receivedTime"]?.ToString(), a["receivedTime"]?.ToString(), StringComparison.Ordinal));
@@ -334,8 +410,16 @@ public class OutlookMailService : IDisposable
         // Attachments summary
         var attachments = new List<string>();
         var atts = mail.Attachments;
-        for (int i = 1; i <= atts.Count; i++)
-            attachments.Add((string)atts.Item(i).FileName);
+        try
+        {
+            for (int i = 1; i <= atts.Count; i++)
+            {
+                dynamic? att = null;
+                try { att = atts.Item(i); attachments.Add((string)att.FileName); }
+                finally { OutlookComHost.Release(att); }
+            }
+        }
+        finally { OutlookComHost.Release(atts); }
         dict["attachments"] = attachments;
 
         if (includeBody)
@@ -347,12 +431,4 @@ public class OutlookMailService : IDisposable
     private static string EscapeDasl(string value) =>
         value.Replace("'", "''").Replace("\"", "\"\"");
 
-    public void Dispose()
-    {
-        if (_outlookApp != null)
-        {
-            Marshal.ReleaseComObject(_outlookApp);
-            _outlookApp = null;
-        }
-    }
 }

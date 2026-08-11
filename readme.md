@@ -105,3 +105,29 @@ dotnet tool uninstall --global outlook-cli
 ```
 
 ---
+
+## ⚙️ Outlook configuration (Programmatic Access warning)
+
+When `outlook-cli` talks to Outlook through the COM API, Outlook may pop up a security prompt:
+
+> **A program is trying to access e-mail address information stored in Outlook.**
+
+This blocks the command until you click **Allow**, which is a problem for unattended use (e.g. the reminder app or scheduled sync). To suppress the prompt, tell Outlook to never warn about programmatic access.
+
+### Never warn me about suspicious activity
+
+1. Close Outlook completely.
+2. Start Outlook **as administrator** (right-click the Outlook shortcut → **Run as administrator**).
+   > The *Programmatic Access* radio buttons are greyed out unless Outlook is running elevated, so this step is required.
+3. Go to **File → Options → Trust Center**.
+4. Click **Trust Center Settings…** on the right.
+5. Select **Programmatic Access** in the left list.
+6. Under *Outlook Security settings*, choose:
+   **Never warn me about suspicious activity (not recommended)**.
+7. Click **OK** twice, then restart Outlook normally.
+
+> **Note:** This setting is stored per-Outlook-profile and is the reason the option is only editable while running as administrator. On some setups (e.g. Windows ARM / Parallels) Outlook reports *Antivirus status: Invalid*, which is exactly why the option above is needed.
+
+Reference: [A program is trying to access email address information stored in Outlook](https://learn.microsoft.com/en-us/answers/questions/4540111/a-program-is-trying-to-access-email-address-inform)
+
+---

@@ -2,7 +2,7 @@ using Outlook.COM;
 
 namespace Outlook.COM.IntegrationTests;
 
-public class OutlookFixture : IDisposable
+public class OutlookFixture
 {
     public OutlookCalendarService CalendarService { get; }
     public OutlookMailService MailService { get; }
@@ -13,13 +13,5 @@ public class OutlookFixture : IDisposable
         CalendarService = new OutlookCalendarService();
         MailService = new OutlookMailService();
         ContactService = new OutlookContactService();
-    }
-
-    public void Dispose()
-    {
-        CalendarService.Dispose();
-        MailService.Dispose();
-        ContactService.Dispose();
-        GC.SuppressFinalize(this);
     }
 }

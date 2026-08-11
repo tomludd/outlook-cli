@@ -25,6 +25,12 @@ internal sealed class MeetingCache : IDisposable
     /// <summary>UTC timestamp of the last successful fetch, or <see cref="DateTime.MinValue"/> if never refreshed.</summary>
     public DateTime LastRefreshed { get; private set; } = DateTime.MinValue;
 
+    /// <summary>True when the most recent refresh attempt failed (Outlook returned no data).</summary>
+    public bool LastRefreshFailed { get; private set; }
+
+    /// <summary>Error message from the most recent failed refresh, or null if none.</summary>
+    public string? LastError { get; private set; }
+
     /// <summary>True once the first refresh has completed successfully.</summary>
     public bool IsLoaded => LastRefreshed > DateTime.MinValue;
 
@@ -58,8 +64,10 @@ internal sealed class MeetingCache : IDisposable
     }
 
     /// <summary>
-    /// Triggers a refresh on a background STA thread so the UI message loop stays responsive
+    /// Triggers a refresh on a background thread so the UI message loop stays responsive
     /// even if Outlook is slow or temporarily unresponsive. Skipped if a refresh is already running.
+    /// Uses Task.Run (MTA thread pool) rather than a raw STA thread — ComTimeout.Run already
+    /// creates its own STA thread for the COM work, and nesting two STA blocking waits deadlocks.
     /// </summary>
     public void Refresh()
     {
@@ -67,14 +75,17 @@ internal sealed class MeetingCache : IDisposable
             return;
 
         var now = DateTime.Now;
-        var thread = new Thread(() =>
+        Task.Run(() =>
         {
             IReadOnlyList<ReminderMeeting>? result = null;
             try
             {
                 result = _service.FetchAll(now.Subtract(QueryHistoryWindow), now.Add(QueryFutureWindow));
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LastError = ex.Message;
+            }
 
             _uiContext.Post(_ =>
             {
@@ -82,14 +93,17 @@ internal sealed class MeetingCache : IDisposable
                 {
                     All = result;
                     LastRefreshed = now;
+                    LastRefreshFailed = false;
+                    LastError = null;
+                }
+                else
+                {
+                    LastRefreshFailed = true;
                 }
                 Interlocked.Exchange(ref _isRefreshing, 0);
                 Refreshed?.Invoke(this, EventArgs.Empty);
             }, null);
         });
-        thread.IsBackground = true;
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
     }
 
     public void Dispose() => _timer.Dispose();

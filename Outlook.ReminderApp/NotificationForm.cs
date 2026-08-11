@@ -74,7 +74,6 @@ internal sealed class NotificationForm : Form
 
         var trayMenu = new ContextMenuStrip();
         trayMenu.Items.Add("Sync settings...", null, (_, _) => _syncUi.ShowConfig(this));
-        trayMenu.Items.Add("Exit", null, (_, _) => Application.Exit());
 
         _trayBellIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? CreateTrayBellIcon();
 
@@ -85,6 +84,17 @@ internal sealed class NotificationForm : Form
             Visible = true,
             ContextMenuStrip = trayMenu
         };
+
+        // Environment.Exit(0) instead of Application.Exit(): Application.Exit() relies on every
+        // open form's FormClosed handler running cleanly (including AgendaForm's) before this
+        // form's OnFormClosed gets a chance to force-terminate — any hiccup in that chain, or a
+        // COM call still in flight, leaves the process (and tray icon) running. A direct hard-kill
+        // here can't be blocked by any of that.
+        trayMenu.Items.Add("Exit", null, (_, _) =>
+        {
+            _trayIcon.Visible = false;
+            Environment.Exit(0);
+        });
 
         Shown += (_, _) => EnsureTopMostWindow();
         Activated += (_, _) => EnsureTopMostWindow();
@@ -273,18 +283,18 @@ internal sealed class NotificationForm : Form
         {
             var acceptBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbUp, acceptLeft, iconTop, iconSize,
                 Color.FromArgb(80, 190, 120), rowBg);
-            acceptBtn.Click += (_, _) =>
+            acceptBtn.Click += async (_, _) =>
             {
-                try { _reminderService.RespondToMeeting(meeting.Id, true); } catch { }
+                try { await _reminderService.RespondToMeetingAsync(meeting.Id, true); } catch { }
                 var n = DateTime.Now; UpdateFromCache(n); RebuildView(n);
             };
             row.Controls.Add(acceptBtn);
 
             var declineBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbDown, declineLeft, iconTop, iconSize,
                 Color.FromArgb(210, 80, 90), rowBg);
-            declineBtn.Click += (_, _) =>
+            declineBtn.Click += async (_, _) =>
             {
-                try { _reminderService.RespondToMeeting(meeting.Id, false); } catch { }
+                try { await _reminderService.RespondToMeetingAsync(meeting.Id, false); } catch { }
                 var n = DateTime.Now; UpdateFromCache(n); RebuildView(n);
             };
             row.Controls.Add(declineBtn);
@@ -372,6 +382,12 @@ internal sealed class NotificationForm : Form
                 ? (remaining.Minutes > 0 ? $"in {(int)remaining.TotalHours}h {remaining.Minutes}m" : $"in {(int)remaining.TotalHours}h")
                 : $"in {(int)remaining.TotalMinutes}m";
             tooltip = $"Meeting Reminder - next: {next.Subject} {timeStr}";
+        }
+
+        if (_cache.LastRefreshFailed)
+        {
+            var warning = _cache.IsLoaded ? "⚠ Cached data - " : "⚠ Outlook not responding - ";
+            tooltip = warning + tooltip;
         }
 
         // NotifyIcon tooltip is limited to 63 chars

@@ -39,6 +39,7 @@ internal sealed class AgendaForm : Form
     private readonly SyncUiController _syncUi;
     private Panel _listPanel = null!;
     private System.Windows.Forms.Timer _countdownTimer = null!;
+    private Label? _staleLabel;
     private bool _needsRefresh = true;
     private Panel? _nowSepPanel;
     private Label? _nowSepCountdownLabel;
@@ -46,6 +47,7 @@ internal sealed class AgendaForm : Form
     private MeetingDetailForm? _activeDetailForm;
     private bool _needsInitialCenter = true;
     private string _lastMeetingsFingerprint = string.Empty;
+    private string _lastLoadingMessage = string.Empty;
     private int _screenCheckTick;
     private Screen? _preferredScreen;
     private System.Windows.Forms.Timer? _fadeTimer;
@@ -228,6 +230,20 @@ internal sealed class AgendaForm : Form
 
         header.Controls.Add(dateLabel);
 
+        _staleLabel = new Label
+        {
+            AutoSize = false,
+            Dock = DockStyle.Right,
+            Width = 200,
+            TextAlign = ContentAlignment.MiddleRight,
+            Padding = new Padding(0, 0, 12, 0),
+            Font = new Font("Segoe UI", 8, FontStyle.Italic),
+            ForeColor = Color.FromArgb(255, 180, 80),
+            Text = "⚠ Showing cached data",
+            Visible = false
+        };
+        header.Controls.Add(_staleLabel);
+
         _listPanel = new Panel
         {
             Dock = DockStyle.Fill,
@@ -306,14 +322,38 @@ internal sealed class AgendaForm : Form
         bool shouldCenterOnShow = _needsInitialCenter;
         _needsInitialCenter = false;
 
+        // Toggle stale-data indicator in the header
+        if (_staleLabel is not null)
+        {
+            if (!_cache.IsLoaded && _cache.LastRefreshFailed)
+            {
+                _staleLabel.Text = "⚠ Outlook not responding";
+                _staleLabel.Visible = true;
+            }
+            else if (_cache.LastRefreshFailed)
+            {
+                _staleLabel.Text = "⚠ Showing cached data";
+                _staleLabel.Visible = true;
+            }
+            else
+            {
+                _staleLabel.Visible = false;
+            }
+        }
+
         if (!_cache.IsLoaded)
         {
             if (shouldCenterOnShow)
                 CenterOnScreen();
 
-            // Data not yet available — ensure loading label is visible and wait for Refreshed event.
-            if (_listPanel.Controls.Count == 0 ||
-                _listPanel.Controls[0] is not Label { Text: "Loading..." })
+            // Data not yet available — ensure loading/error label is visible and wait for Refreshed event.
+            var message = _cache.LastRefreshFailed && !string.IsNullOrEmpty(_cache.LastError)
+                ? $"Could not load Outlook data:\n{_cache.LastError}"
+                : "Loading...";
+
+            if (_listPanel.Controls.Count != 1 ||
+                _listPanel.Controls[0] is not Label lbl ||
+                lbl.Text != message)
             {
                 foreach (Control c in _listPanel.Controls) c.Dispose();
                 _listPanel.Controls.Clear();
@@ -321,14 +361,19 @@ internal sealed class AgendaForm : Form
                 {
                     AutoSize = false,
                     Dock = DockStyle.Fill,
-                    Text = "Loading...",
+                    Text = message,
                     Font = new Font("Segoe UI", 10, FontStyle.Regular),
-                    ForeColor = Color.FromArgb(140, 145, 160),
+                    ForeColor = _cache.LastRefreshFailed
+                        ? Color.FromArgb(255, 180, 80)
+                        : Color.FromArgb(140, 145, 160),
                     TextAlign = ContentAlignment.MiddleCenter
                 });
             }
+            _lastLoadingMessage = message;
             return;
         }
+
+        _lastLoadingMessage = string.Empty;
 
         var meetings = _reminderService.GetTodaysMeetings(now, _cache.All);
 
@@ -622,9 +667,9 @@ internal sealed class AgendaForm : Form
         {
             var acceptBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbUp, acceptLeft, iconTop, iconSize,
                 Color.FromArgb(80, 190, 120), rowBg);
-            acceptBtn.Click += (_, _) =>
+            acceptBtn.Click += async (_, _) =>
             {
-                try { _reminderService.RespondToMeeting(meeting.Id, true); }
+                try { await _reminderService.RespondToMeetingAsync(meeting.Id, true); }
                 catch { }
                 RefreshAgenda();
             };
@@ -632,9 +677,9 @@ internal sealed class AgendaForm : Form
 
             var declineBtn = MaterialIcons.MakeButton(MaterialIcons.ThumbDown, declineLeft, iconTop, iconSize,
                 Color.FromArgb(210, 80, 90), rowBg);
-            declineBtn.Click += (_, _) =>
+            declineBtn.Click += async (_, _) =>
             {
-                try { _reminderService.RespondToMeeting(meeting.Id, false); }
+                try { await _reminderService.RespondToMeetingAsync(meeting.Id, false); }
                 catch { }
                 RefreshAgenda();
             };
@@ -644,7 +689,7 @@ internal sealed class AgendaForm : Form
         return row;
     }
 
-    private void HandleRowClick(ReminderMeeting meeting)
+    private async void HandleRowClick(ReminderMeeting meeting)
     {
         // Toggle: clicking the same row again closes the flyout
         if (_activeDetailForm is { IsDisposed: false } f && f.Tag is string id && id == meeting.Id)
@@ -657,12 +702,12 @@ internal sealed class AgendaForm : Form
         _activeDetailForm?.Close();
         _activeDetailForm = null;
 
-        var details = _reminderService.GetMeetingDetails(meeting.Id)
+        var details = await _reminderService.GetMeetingDetailsAsync(meeting.Id)
             ?? new MeetingDetails(meeting.DisplaySubject, meeting.Start, meeting.End,
                                   string.Empty, meeting.Location, meeting.Body, string.Empty, []);
 
         var anchorPoint = new Point(Right, Top);
-        var flyout = new MeetingDetailForm(details, anchorPoint, () => _reminderService.OpenInOutlook(meeting.Id));
+        var flyout = new MeetingDetailForm(details, anchorPoint, async () => await _reminderService.OpenInOutlookAsync(meeting.Id));
         flyout.Tag = meeting.Id;
         flyout.FormClosed += (_, _) => { if (_activeDetailForm == flyout) _activeDetailForm = null; };
 

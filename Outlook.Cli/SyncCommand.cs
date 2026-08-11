@@ -127,7 +127,7 @@ public static class SyncCommand
                 ? DateTime.ParseExact(toStr, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)
                 : DateTime.Today.AddYears(2);
 
-            using var svc = new OutlookCalendarService();
+            var svc = new OutlookCalendarService();
             var events = svc.ListEvents(from, to, account);
             var synced = events
                 .Where(e => e.TryGetValue("body", out var b) && b is string s && s.Contains("[outlook-sync:"))

@@ -42,7 +42,7 @@ public static class EmailCommand
             var account = ctx.GetValue(accountOpt);
             var after   = ctx.GetValue(afterOpt);
             var before  = ctx.GetValue(beforeOpt);
-            using var svc = new OutlookMailService();
+            var svc = new OutlookMailService();
             var emails = svc.ListEmails(folder, count, subject, sender, account, after, before);
             Console.WriteLine(JsonSerializer.Serialize(emails, JsonOptions));
         });
@@ -57,7 +57,7 @@ public static class EmailCommand
         cmd.SetAction(ctx =>
         {
             var id = ctx.GetValue(idArg)!;
-            using var svc = new OutlookMailService();
+            var svc = new OutlookMailService();
             var email = svc.GetEmail(id);
             Console.WriteLine(JsonSerializer.Serialize(email, JsonOptions));
         });
@@ -78,7 +78,7 @@ public static class EmailCommand
             var query   = ctx.GetValue(queryArg)!;
             var max     = Math.Clamp(ctx.GetValue(maxOpt), 1, 100);
             var account = ctx.GetValue(accountOpt);
-            using var svc = new OutlookMailService();
+            var svc = new OutlookMailService();
             var emails = svc.SearchEmails(query, max, account);
             Console.WriteLine(JsonSerializer.Serialize(emails, JsonOptions));
         });
@@ -115,7 +115,7 @@ public static class EmailCommand
             var paths = string.IsNullOrEmpty(attachments)
                 ? null
                 : attachments.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            using var svc = new OutlookMailService();
+            var svc = new OutlookMailService();
             svc.SendEmail(to, subject, body, cc, bcc, html, importance, paths, account);
             Console.WriteLine(JsonSerializer.Serialize(new { success = true, message = "Email sent." }, JsonOptions));
         });
@@ -136,7 +136,7 @@ public static class EmailCommand
             var id   = ctx.GetValue(idArg)!;
             var body = ctx.GetValue(bodyOpt)!;
             var all  = ctx.GetValue(allOpt);
-            using var svc = new OutlookMailService();
+            var svc = new OutlookMailService();
             svc.ReplyToEmail(id, body, all);
             Console.WriteLine(JsonSerializer.Serialize(new { success = true, message = all ? "Reply-all sent." : "Reply sent." }, JsonOptions));
         });
@@ -157,7 +157,7 @@ public static class EmailCommand
             var id   = ctx.GetValue(idArg)!;
             var to   = ctx.GetValue(toOpt)!;
             var body = ctx.GetValue(bodyOpt);
-            using var svc = new OutlookMailService();
+            var svc = new OutlookMailService();
             svc.ForwardEmail(id, to, body);
             Console.WriteLine(JsonSerializer.Serialize(new { success = true, message = "Email forwarded." }, JsonOptions));
         });

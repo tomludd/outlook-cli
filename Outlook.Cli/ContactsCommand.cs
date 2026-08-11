@@ -31,7 +31,7 @@ public static class ContactsCommand
         {
             var count   = Math.Clamp(ctx.GetValue(countOpt), 1, 500);
             var account = ctx.GetValue(accountOpt);
-            using var svc = new OutlookContactService();
+            var svc = new OutlookContactService();
             var contacts = svc.ListContacts(count, account);
             Console.WriteLine(JsonSerializer.Serialize(contacts, JsonOptions));
         });
@@ -52,7 +52,7 @@ public static class ContactsCommand
             var query   = ctx.GetValue(queryArg)!;
             var max     = Math.Clamp(ctx.GetValue(maxOpt), 1, 100);
             var account = ctx.GetValue(accountOpt);
-            using var svc = new OutlookContactService();
+            var svc = new OutlookContactService();
             var contacts = svc.SearchContacts(query, max, account);
             Console.WriteLine(JsonSerializer.Serialize(contacts, JsonOptions));
         });
@@ -67,7 +67,7 @@ public static class ContactsCommand
         cmd.SetAction(ctx =>
         {
             var id = ctx.GetValue(idArg)!;
-            using var svc = new OutlookContactService();
+            var svc = new OutlookContactService();
             try
             {
                 var contact = svc.GetContact(id);
@@ -111,7 +111,7 @@ public static class ContactsCommand
             var addr    = ctx.GetValue(addrOpt);
             var notes   = ctx.GetValue(notesOpt);
             var account = ctx.GetValue(accountOpt);
-            using var svc = new OutlookContactService();
+            var svc = new OutlookContactService();
             var id = svc.CreateContact(first, last, email, phone, mobile, company, title, addr, notes, account);
             Console.WriteLine(JsonSerializer.Serialize(new { success = true, contactId = id }, JsonOptions));
         });
@@ -148,7 +148,7 @@ public static class ContactsCommand
             var title   = ctx.GetValue(titleOpt);
             var addr    = ctx.GetValue(addrOpt);
             var notes   = ctx.GetValue(notesOpt);
-            using var svc = new OutlookContactService();
+            var svc = new OutlookContactService();
             var result = svc.UpdateContact(id, first, last, email, phone, mobile, company, title, addr, notes);
             Console.WriteLine(JsonSerializer.Serialize(new { success = result }, JsonOptions));
         });
@@ -163,7 +163,7 @@ public static class ContactsCommand
         cmd.SetAction(ctx =>
         {
             var id = ctx.GetValue(idArg)!;
-            using var svc = new OutlookContactService();
+            var svc = new OutlookContactService();
             try
             {
                 var result = svc.DeleteContact(id);

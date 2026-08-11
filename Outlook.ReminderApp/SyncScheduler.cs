@@ -62,7 +62,7 @@ internal sealed class SyncScheduler : IDisposable
     {
         if (_isRunning) return;
         _isRunning = true;
-        RunSyncsOnStaThread(DateTime.Now);
+        RunSyncsInBackground(DateTime.Now);
     }
 
     private void OnTick()
@@ -70,18 +70,16 @@ internal sealed class SyncScheduler : IDisposable
         ScheduleNext(DateTime.Now);
         if (_isRunning) return;
         _isRunning = true;
-        RunSyncsOnStaThread(DateTime.Now);
+        RunSyncsInBackground(DateTime.Now);
     }
 
-    private void RunSyncsOnStaThread(DateTime now)
+    private void RunSyncsInBackground(DateTime now)
     {
+        // Doesn't touch COM directly — CalendarSyncService/OutlookCalendarService route every
+        // real call through Outlook.COM's dedicated STA worker (see ComTimeout), so this thread
+        // doesn't need to be STA itself.
         var rulesSnapshot = _rules.ToList();
-        var thread = new Thread(() => RunSyncs(rulesSnapshot, now))
-        {
-            IsBackground = true
-        };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
+        Task.Run(() => RunSyncs(rulesSnapshot, now));
     }
 
     private void RunSyncs(IReadOnlyList<SyncRule> rules, DateTime now)

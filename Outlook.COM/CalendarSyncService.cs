@@ -32,7 +32,7 @@ public class CalendarSyncService
         var modeKey = mode == SyncMode.Copy ? "copy" : "block";
         var marker = $"[outlook-sync:{modeKey}:{ComputeRuleId(sourceAccount, targetAccount)}]";
 
-        using var calService = new OutlookCalendarService();
+        var calService = new OutlookCalendarService();
 
         var sourceEvents = calService.ListEvents(from, to, sourceAccount)
             .Where(ShouldSync)

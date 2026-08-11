@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace Outlook.COM;
 
 [SupportedOSPlatform("windows")]
-public class OutlookCalendarService : IDisposable
+public class OutlookCalendarService
 {
     // Outlook constants
     private const int OlFolderCalendar = 9;
@@ -24,21 +24,7 @@ public class OutlookCalendarService : IDisposable
     private const int OlResponseTentative = 2;
     private const int OlResponseNotResponded = 5;
 
-    private dynamic? _outlookApp;
-
-    private dynamic GetOutlookApp()
-    {
-        if (_outlookApp != null) return _outlookApp;
-
-        var type = Type.GetTypeFromProgID("Outlook.Application")
-            ?? throw new InvalidOperationException(
-                "Microsoft Outlook is not installed or not registered on this system.");
-
-        _outlookApp = Activator.CreateInstance(type)
-            ?? throw new InvalidOperationException("Failed to create Outlook.Application instance.");
-
-        return _outlookApp;
-    }
+    private dynamic GetOutlookApp() => OutlookComHost.GetApp();
 
     private dynamic GetNamespace()
     {
@@ -122,6 +108,9 @@ public class OutlookCalendarService : IDisposable
     }
 
     public List<Dictionary<string, object?>> ListEvents(DateTime startDate, DateTime endDate, string? account)
+        => OutlookComInvoker.Run(() => ListEventsCore(startDate, endDate, account));
+
+    private List<Dictionary<string, object?>> ListEventsCore(DateTime startDate, DateTime endDate, string? account)
     {
         var events = new List<Dictionary<string, object?>>();
 
@@ -129,17 +118,27 @@ public class OutlookCalendarService : IDisposable
         {
             var ns = GetNamespace();
             var stores = ns.Stores;
-            for (int i = 1; i <= stores.Count; i++)
+            try
             {
-                try
+                for (int i = 1; i <= stores.Count; i++)
                 {
-                    var store = stores.Item(i);
-                    var smtpAddress = GetSmtpAddressForStore(ns, store);
-                    CollectEvents(store.GetDefaultFolder(OlFolderCalendar), startDate, endDate, events, smtpAddress);
+                    dynamic? store = null;
+                    try
+                    {
+                        store = stores.Item(i);
+                        var smtpAddress = GetSmtpAddressForStore(ns, store);
+                        CollectEvents(store.GetDefaultFolder(OlFolderCalendar), startDate, endDate, events, smtpAddress);
+                    }
+                    catch { /* Store has no calendar folder */ }
+                    finally { OutlookComHost.Release(store); }
                 }
-                catch { /* Store has no calendar folder */ }
+                events.Sort((a, b) => string.Compare(a["start"]?.ToString(), b["start"]?.ToString(), StringComparison.Ordinal));
             }
-            events.Sort((a, b) => string.Compare(a["start"]?.ToString(), b["start"]?.ToString(), StringComparison.Ordinal));
+            finally
+            {
+                OutlookComHost.Release(stores);
+                OutlookComHost.Release(ns);
+            }
         }
         else
         {
@@ -152,17 +151,27 @@ public class OutlookCalendarService : IDisposable
     private void CollectEvents(dynamic folder, DateTime startDate, DateTime endDate, List<Dictionary<string, object?>> events, string? accountName = null)
     {
         var restrictedItems = GetCalendarItemsInRange(folder, startDate, endDate);
-        var item = restrictedItems.GetFirst();
-        while (item != null)
+        try
         {
-            var dict = AppointmentToDict(item);
-            if (accountName is not null) dict["account"] = accountName;
-            events.Add(dict);
-            item = restrictedItems.GetNext();
+            dynamic? item = restrictedItems.GetFirst();
+            while (item != null)
+            {
+                var dict = AppointmentToDict(item);
+                if (accountName is not null) dict["account"] = accountName;
+                events.Add(dict);
+                OutlookComHost.Release(item);
+                item = restrictedItems.GetNext();
+            }
         }
+        finally { OutlookComHost.Release(restrictedItems); }
     }
 
     public string CreateEvent(string subject, DateTime startDateTime, DateTime endDateTime,
+        string? location, string? body, bool isMeeting, string? attendees, string? account,
+        bool reminderEnabled = true, int busyStatus = OlBusy)
+        => OutlookComInvoker.Run(() => CreateEventCore(subject, startDateTime, endDateTime, location, body, isMeeting, attendees, account, reminderEnabled, busyStatus));
+
+    private string CreateEventCore(string subject, DateTime startDateTime, DateTime endDateTime,
         string? location, string? body, bool isMeeting, string? attendees, string? account,
         bool reminderEnabled = true, int busyStatus = OlBusy)
     {
@@ -200,12 +209,23 @@ public class OutlookCalendarService : IDisposable
         Marshal.ReleaseComObject(appointment);
         var ns = GetNamespace();
         dynamic saved = ns.GetItemFromID(tempId);
-        string stableId = (string)saved.EntryID;
-        Marshal.ReleaseComObject(saved);
-        return stableId;
+        try
+        {
+            string stableId = (string)saved.EntryID;
+            return stableId;
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(saved);
+            OutlookComHost.Release(ns);
+        }
     }
 
     public bool UpdateEvent(string eventId, string? subject, DateTime? startDateTime, DateTime? endDateTime,
+        string? location, string? body, string? account)
+        => OutlookComInvoker.Run(() => UpdateEventCore(eventId, subject, startDateTime, endDateTime, location, body, account));
+
+    private bool UpdateEventCore(string eventId, string? subject, DateTime? startDateTime, DateTime? endDateTime,
         string? location, string? body, string? account)
     {
         var ns = GetNamespace();
@@ -216,29 +236,40 @@ public class OutlookCalendarService : IDisposable
         }
         catch
         {
+            OutlookComHost.Release(ns);
             throw new InvalidOperationException($"Event not found with ID: {eventId}");
         }
 
-        if (appointment == null)
-            throw new InvalidOperationException($"Event not found with ID: {eventId}");
+        try
+        {
+            if (appointment == null)
+                throw new InvalidOperationException($"Event not found with ID: {eventId}");
 
-        if (!string.IsNullOrEmpty(subject))
-            appointment.Subject = subject;
-        if (startDateTime.HasValue)
-            appointment.Start = startDateTime.Value;
-        if (endDateTime.HasValue)
-            appointment.End = endDateTime.Value;
-        if (!string.IsNullOrEmpty(location))
-            appointment.Location = location;
-        if (!string.IsNullOrEmpty(body))
-            appointment.Body = body;
+            if (!string.IsNullOrEmpty(subject))
+                appointment.Subject = subject;
+            if (startDateTime.HasValue)
+                appointment.Start = startDateTime.Value;
+            if (endDateTime.HasValue)
+                appointment.End = endDateTime.Value;
+            if (!string.IsNullOrEmpty(location))
+                appointment.Location = location;
+            if (!string.IsNullOrEmpty(body))
+                appointment.Body = body;
 
-        appointment.Save();
-        Marshal.ReleaseComObject(appointment);
-        return true;
+            appointment.Save();
+            return true;
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(appointment);
+            OutlookComHost.Release(ns);
+        }
     }
 
     public bool DeleteEvent(string eventId, string? account)
+        => OutlookComInvoker.Run(() => DeleteEventCore(eventId, account));
+
+    private bool DeleteEventCore(string eventId, string? account)
     {
         var ns = GetNamespace();
         dynamic appointment;
@@ -248,19 +279,31 @@ public class OutlookCalendarService : IDisposable
         }
         catch
         {
+            OutlookComHost.Release(ns);
             throw new InvalidOperationException($"Event not found with ID: {eventId}");
         }
 
         if (appointment == null)
             throw new InvalidOperationException($"Event not found with ID: {eventId}");
 
-        try { appointment.Delete(); }
+        try
+        {
+            appointment.Delete();
+        }
         catch (System.Runtime.InteropServices.COMException) { /* item deleted but COM reports a move error — ignore */ }
-        finally { try { Marshal.ReleaseComObject(appointment); } catch { } }
+        finally
+        {
+            try { Marshal.ReleaseComObject(appointment); } catch { }
+            OutlookComHost.Release(ns);
+        }
         return true;
     }
 
     public List<Dictionary<string, string>> FindFreeSlots(DateTime startDate, DateTime endDate,
+        int durationMinutes = 30, int workDayStart = 9, int workDayEnd = 17, string? account = null)
+        => OutlookComInvoker.Run(() => FindFreeSlotsCore(startDate, endDate, durationMinutes, workDayStart, workDayEnd, account));
+
+    private List<Dictionary<string, string>> FindFreeSlotsCore(DateTime startDate, DateTime endDate,
         int durationMinutes = 30, int workDayStart = 9, int workDayEnd = 17, string? account = null)
     {
         // Collect busy slots from all relevant calendars
@@ -269,24 +312,39 @@ public class OutlookCalendarService : IDisposable
         void CollectBusy(dynamic folder)
         {
             var restrictedItems = GetCalendarItemsInRange(folder, startDate, endDate);
-            var item = restrictedItems.GetFirst();
-            while (item != null)
+            try
             {
-                int busyStatus = (int)item.BusyStatus;
-                if (busyStatus == OlBusy || busyStatus == OlOutOfOffice)
-                    busySlots.Add(((DateTime)item.Start, (DateTime)item.End));
-                item = restrictedItems.GetNext();
+                dynamic? item = restrictedItems.GetFirst();
+                while (item != null)
+                {
+                    int busyStatus = (int)item.BusyStatus;
+                    if (busyStatus == OlBusy || busyStatus == OlOutOfOffice)
+                        busySlots.Add(((DateTime)item.Start, (DateTime)item.End));
+                    OutlookComHost.Release(item);
+                    item = restrictedItems.GetNext();
+                }
             }
+            finally { OutlookComHost.Release(restrictedItems); }
         }
 
         if (string.IsNullOrEmpty(account))
         {
             var ns = GetNamespace();
             var stores = ns.Stores;
-            for (int i = 1; i <= stores.Count; i++)
+            try
             {
-                try { CollectBusy(stores.Item(i).GetDefaultFolder(OlFolderCalendar)); }
-                catch { /* Store has no calendar folder */ }
+                for (int i = 1; i <= stores.Count; i++)
+                {
+                    dynamic? store = null;
+                    try { store = stores.Item(i); CollectBusy(store.GetDefaultFolder(OlFolderCalendar)); }
+                    catch { /* Store has no calendar folder */ }
+                    finally { OutlookComHost.Release(store); }
+                }
+            }
+            finally
+            {
+                OutlookComHost.Release(stores);
+                OutlookComHost.Release(ns);
             }
         }
         else
@@ -349,6 +407,9 @@ public class OutlookCalendarService : IDisposable
     }
 
     public Dictionary<string, object?> GetAttendeeStatus(string eventId, string? account)
+        => OutlookComInvoker.Run(() => GetAttendeeStatusCore(eventId, account));
+
+    private Dictionary<string, object?> GetAttendeeStatusCore(string eventId, string? account)
     {
         var ns = GetNamespace();
         dynamic appointment;
@@ -358,92 +419,135 @@ public class OutlookCalendarService : IDisposable
         }
         catch
         {
+            OutlookComHost.Release(ns);
             throw new InvalidOperationException($"Event not found with ID: {eventId}");
         }
 
-        if ((int)appointment.MeetingStatus != OlMeeting)
-            throw new InvalidOperationException("The specified event is not a meeting.");
-
-        var attendees = new List<Dictionary<string, string>>();
-        var recipients = appointment.Recipients;
-        for (int i = 1; i <= recipients.Count; i++)
+        try
         {
-            var recipient = recipients.Item(i);
-            var responseStatus = (int)recipient.MeetingResponseStatus switch
+            if ((int)appointment.MeetingStatus != OlMeeting)
+                throw new InvalidOperationException("The specified event is not a meeting.");
+
+            var attendees = new List<Dictionary<string, string>>();
+            var recipients = appointment.Recipients;
+            try
             {
-                OlResponseAccepted => "Accepted",
-                OlResponseDeclined => "Declined",
-                OlResponseTentative => "Tentative",
-                OlResponseNotResponded => "Not Responded",
-                _ => "Unknown"
+                for (int i = 1; i <= recipients.Count; i++)
+                {
+                    var recipient = recipients.Item(i);
+                    try
+                    {
+                        var responseStatus = (int)recipient.MeetingResponseStatus switch
+                        {
+                            OlResponseAccepted => "Accepted",
+                            OlResponseDeclined => "Declined",
+                            OlResponseTentative => "Tentative",
+                            OlResponseNotResponded => "Not Responded",
+                            _ => "Unknown"
+                        };
+
+                        attendees.Add(new Dictionary<string, string>
+                        {
+                            ["name"] = (string)recipient.Name,
+                            ["responseStatus"] = responseStatus
+                        });
+                    }
+                    finally { OutlookComHost.Release(recipient); }
+                }
+            }
+            finally { OutlookComHost.Release(recipients); }
+
+            return new Dictionary<string, object?>
+            {
+                ["subject"] = (string)appointment.Subject,
+                ["start"] = ((DateTime)appointment.Start).ToString("yyyy-MM-dd HH:mm"),
+                ["end"] = ((DateTime)appointment.End).ToString("yyyy-MM-dd HH:mm"),
+                ["location"] = (string)appointment.Location,
+                ["organizer"] = (string)appointment.Organizer,
+                ["attendees"] = attendees
             };
-
-            attendees.Add(new Dictionary<string, string>
-            {
-                ["name"] = (string)recipient.Name,
-                ["responseStatus"] = responseStatus
-            });
         }
-
-        var result = new Dictionary<string, object?>
+        finally
         {
-            ["subject"] = (string)appointment.Subject,
-            ["start"] = ((DateTime)appointment.Start).ToString("yyyy-MM-dd HH:mm"),
-            ["end"] = ((DateTime)appointment.End).ToString("yyyy-MM-dd HH:mm"),
-            ["location"] = (string)appointment.Location,
-            ["organizer"] = (string)appointment.Organizer,
-            ["attendees"] = attendees
-        };
-
-        Marshal.ReleaseComObject(appointment);
-        return result;
+            Marshal.ReleaseComObject(appointment);
+            OutlookComHost.Release(ns);
+        }
     }
 
     public List<Dictionary<string, object>> GetCalendars()
+        => OutlookComInvoker.Run(() => GetCalendarsCore());
+
+    private List<Dictionary<string, object>> GetCalendarsCore()
     {
         var ns = GetNamespace();
         var calendars = new List<Dictionary<string, object>>(); 
 
         var stores = ns.Stores;
-        for (int i = 1; i <= stores.Count; i++)
+        try
         {
-            var store = stores.Item(i);
-            try
+            for (int i = 1; i <= stores.Count; i++)
             {
-                var calendarFolder = store.GetDefaultFolder(OlFolderCalendar);
-                if (calendarFolder != null)
+                dynamic? store = null;
+                try
                 {
-                    calendars.Add(new Dictionary<string, object>
+                    store = stores.Item(i);
+                    var calendarFolder = store.GetDefaultFolder(OlFolderCalendar);
+                    if (calendarFolder != null)
                     {
-                        ["name"] = (string)store.DisplayName,
-                        ["isDefault"] = i == 1
-                    });
+                        calendars.Add(new Dictionary<string, object>
+                        {
+                            ["name"] = (string)store.DisplayName,
+                            ["isDefault"] = i == 1
+                        });
+                    }
                 }
+                catch
+                {
+                    // No calendar folder in this store — skip
+                }
+                finally { OutlookComHost.Release(store); }
             }
-            catch
-            {
-                // No calendar folder in this store — skip
-            }
+        }
+        finally
+        {
+            OutlookComHost.Release(stores);
+            OutlookComHost.Release(ns);
         }
 
         return calendars;
     }
 
     public List<Dictionary<string, object>> ListAccounts()
+        => OutlookComInvoker.Run(() => ListAccountsCore());
+
+    private List<Dictionary<string, object>> ListAccountsCore()
     {
         var ns = GetNamespace();
         var accounts = new List<Dictionary<string, object>>();
 
         var stores = ns.Stores;
-        for (int i = 1; i <= stores.Count; i++)
+        try
         {
-            var store = stores.Item(i);
-            accounts.Add(new Dictionary<string, object>
+            for (int i = 1; i <= stores.Count; i++)
             {
-                ["displayName"] = (string)store.DisplayName,
-                ["storeId"] = (string)store.StoreID,
-                ["isDefault"] = i == 1
-            });
+                dynamic? store = null;
+                try
+                {
+                    store = stores.Item(i);
+                    accounts.Add(new Dictionary<string, object>
+                    {
+                        ["displayName"] = (string)store.DisplayName,
+                        ["storeId"] = (string)store.StoreID,
+                        ["isDefault"] = i == 1
+                    });
+                }
+                finally { OutlookComHost.Release(store); }
+            }
+        }
+        finally
+        {
+            OutlookComHost.Release(stores);
+            OutlookComHost.Release(ns);
         }
 
         return accounts;
@@ -596,6 +700,9 @@ public class OutlookCalendarService : IDisposable
     }
 
     public Dictionary<string, object?> GetEvent(string eventId)
+        => OutlookComInvoker.Run(() => GetEventCore(eventId));
+
+    private Dictionary<string, object?> GetEventCore(string eventId)
     {
         var ns = GetNamespace();
         dynamic appointment;
@@ -605,31 +712,49 @@ public class OutlookCalendarService : IDisposable
         }
         catch
         {
+            OutlookComHost.Release(ns);
             throw new InvalidOperationException($"Event not found with ID: {eventId}");
         }
 
-        var result = AppointmentToDict(appointment, includeAttendees: true);
-        Marshal.ReleaseComObject(appointment);
-        return result;
+        try
+        {
+            var result = AppointmentToDict(appointment, includeAttendees: true);
+            return result;
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(appointment);
+            OutlookComHost.Release(ns);
+        }
     }
 
     public void OpenItem(string eventId)
+        => OutlookComInvoker.Run(() => OpenItemCore(eventId));
+
+    private void OpenItemCore(string eventId)
     {
         var ns = GetNamespace();
         try
         {
             dynamic appointment = ns.GetItemFromID(eventId);
-            appointment.Display(false);
-            // Outlook's Inspector holds the reference — releasing here is safe
-            Marshal.ReleaseComObject(appointment);
+            try
+            {
+                appointment.Display(false);
+                // Outlook's Inspector holds the reference — releasing here is safe
+            }
+            finally { Marshal.ReleaseComObject(appointment); }
         }
         catch
         {
             // Silently ignore — item may no longer exist
         }
+        finally { OutlookComHost.Release(ns); }
     }
 
     public void RespondToMeeting(string eventId, int responseType)
+        => OutlookComInvoker.Run(() => RespondToMeetingCore(eventId, responseType));
+
+    private void RespondToMeetingCore(string eventId, int responseType)
     {
         var ns = GetNamespace();
         dynamic appointment;
@@ -639,6 +764,7 @@ public class OutlookCalendarService : IDisposable
         }
         catch
         {
+            OutlookComHost.Release(ns);
             throw new InvalidOperationException($"Event not found with ID: {eventId}");
         }
 
@@ -655,15 +781,7 @@ public class OutlookCalendarService : IDisposable
         finally
         {
             Marshal.ReleaseComObject(appointment);
-        }
-    }
-
-    public void Dispose()
-    {
-        if (_outlookApp != null)
-        {
-            Marshal.ReleaseComObject(_outlookApp);
-            _outlookApp = null;
+            OutlookComHost.Release(ns);
         }
     }
 }

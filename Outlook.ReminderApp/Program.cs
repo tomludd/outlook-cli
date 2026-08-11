@@ -19,7 +19,7 @@ internal static class Program
 
         var uiContext = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
 
-        using var reminderService = new MeetingReminderService();
+        var reminderService = new MeetingReminderService();
         using var cache = new MeetingCache(reminderService, uiContext);
         using var syncScheduler = new SyncScheduler(uiContext);
         var syncStore = new SyncConfigStore();

@@ -4,12 +4,13 @@ using Outlook.COM;
 
 namespace Outlook.ReminderApp;
 
-internal sealed class MeetingReminderService : IDisposable
+internal sealed class MeetingReminderService
 {
     private static readonly TimeSpan UpcomingWindow = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan AutoOpenGraceWindow = TimeSpan.FromMinutes(2);
 
     private readonly MeetingActionStateStore _stateStore = new();
+    private readonly OutlookCalendarService _calendarService = new();
 
     /// <summary>
     /// Returns meetings visible in the notification widget, derived from the supplied cached list.
@@ -233,8 +234,7 @@ internal sealed class MeetingReminderService : IDisposable
     /// </summary>
     public IReadOnlyList<ReminderMeeting> FetchAll(DateTime from, DateTime to)
     {
-        using var calendarService = new OutlookCalendarService();
-        var events = calendarService.ListEvents(from, to, account: null);
+        var events = _calendarService.ListEvents(from, to, account: null);
 
         return events
             .Select(ToReminderMeeting)
@@ -250,60 +250,65 @@ internal sealed class MeetingReminderService : IDisposable
             .ToList();
     }
 
-    public void RespondToMeeting(string meetingId, bool accept)
-    {
-        using var calendarService = new OutlookCalendarService();
-        calendarService.RespondToMeeting(meetingId, accept ? 3 : 4);
-    }
+    /// <summary>
+    /// Responds to a meeting asynchronously so the UI thread is never blocked by a slow Outlook.
+    /// The COM call runs on the persistent STA worker via ComTimeout.Run; Task.Run ensures the
+    /// blocking wait happens off the UI thread.
+    /// </summary>
+    public Task RespondToMeetingAsync(string meetingId, bool accept)
+        => Task.Run(() => _calendarService.RespondToMeeting(meetingId, accept ? 3 : 4));
 
-    public MeetingDetails? GetMeetingDetails(string meetingId)
-    {
-        try
+    /// <summary>
+    /// Fetches meeting details asynchronously so the UI thread is never blocked by a slow Outlook.
+    /// </summary>
+    public Task<MeetingDetails?> GetMeetingDetailsAsync(string meetingId)
+        => Task.Run(() =>
         {
-            using var calendarService = new OutlookCalendarService();
-            var dict = calendarService.GetEvent(meetingId);
-
-            var subject  = dict.TryGetValue("subject",  out var s)  ? s?.ToString()  ?? string.Empty : string.Empty;
-            var organizer = dict.TryGetValue("organizer", out var o)  ? o?.ToString()  ?? string.Empty : string.Empty;
-            var location  = dict.TryGetValue("location",  out var l)  ? l?.ToString()  ?? string.Empty : string.Empty;
-            var body      = dict.TryGetValue("body",      out var bd) ? bd?.ToString() ?? string.Empty : string.Empty;
-            var htmlBody  = dict.TryGetValue("htmlBody",  out var hb) ? hb?.ToString() ?? string.Empty : string.Empty;
-
-            DateTime start = DateTime.MinValue, end = DateTime.MinValue;
-            if (dict.TryGetValue("start", out var sv) && sv is string startStr)
-                DateTime.TryParseExact(startStr, "yyyy-MM-dd HH:mm", null, System.Globalization.DateTimeStyles.None, out start);
-            if (dict.TryGetValue("end", out var ev) && ev is string endStr)
-                DateTime.TryParseExact(endStr, "yyyy-MM-dd HH:mm", null, System.Globalization.DateTimeStyles.None, out end);
-
-            var attendees = new List<AttendeeInfo>();
-            if (dict.TryGetValue("attendees", out var raw) && raw is List<Dictionary<string, string>> list)
+            try
             {
-                foreach (var a in list)
+                var dict = _calendarService.GetEvent(meetingId);
+
+                var subject  = dict.TryGetValue("subject",  out var s)  ? s?.ToString()  ?? string.Empty : string.Empty;
+                var organizer = dict.TryGetValue("organizer", out var o)  ? o?.ToString()  ?? string.Empty : string.Empty;
+                var location  = dict.TryGetValue("location",  out var l)  ? l?.ToString()  ?? string.Empty : string.Empty;
+                var body      = dict.TryGetValue("body",      out var bd) ? bd?.ToString() ?? string.Empty : string.Empty;
+                var htmlBody  = dict.TryGetValue("htmlBody",  out var hb) ? hb?.ToString() ?? string.Empty : string.Empty;
+
+                DateTime start = DateTime.MinValue, end = DateTime.MinValue;
+                if (dict.TryGetValue("start", out var sv) && sv is string startStr)
+                    DateTime.TryParseExact(startStr, "yyyy-MM-dd HH:mm", null, System.Globalization.DateTimeStyles.None, out start);
+                if (dict.TryGetValue("end", out var ev) && ev is string endStr)
+                    DateTime.TryParseExact(endStr, "yyyy-MM-dd HH:mm", null, System.Globalization.DateTimeStyles.None, out end);
+
+                var attendees = new List<AttendeeInfo>();
+                if (dict.TryGetValue("attendees", out var raw) && raw is List<Dictionary<string, string>> list)
                 {
-                    var name   = a.TryGetValue("name",           out var n) ? n : string.Empty;
-                    var status = a.TryGetValue("responseStatus", out var r) ? r : "Unknown";
-                    var email  = a.TryGetValue("email",          out var e) ? e : string.Empty;
-                    attendees.Add(new AttendeeInfo(name, status, email));
+                    foreach (var a in list)
+                    {
+                        var name   = a.TryGetValue("name",           out var n) ? n : string.Empty;
+                        var status = a.TryGetValue("responseStatus", out var r) ? r : "Unknown";
+                        var email  = a.TryGetValue("email",          out var e) ? e : string.Empty;
+                        attendees.Add(new AttendeeInfo(name, status, email));
+                    }
                 }
+
+                return new MeetingDetails(subject, start, end, organizer, location, body, htmlBody, attendees);
             }
+            catch
+            {
+                return null;
+            }
+        });
 
-            return new MeetingDetails(subject, start, end, organizer, location, body, htmlBody, attendees);
-        }
-        catch
+    /// <summary>
+    /// Opens the meeting item in Outlook asynchronously so the UI thread is never blocked.
+    /// </summary>
+    public Task OpenInOutlookAsync(string meetingId)
+        => Task.Run(() =>
         {
-            return null;
-        }
-    }
-
-    public void OpenInOutlook(string meetingId)
-    {
-        try
-        {
-            using var calendarService = new OutlookCalendarService();
-            calendarService.OpenItem(meetingId);
-        }
-        catch { }
-    }
+            try { _calendarService.OpenItem(meetingId); }
+            catch { }
+        });
 
     private static string? GetValue(Dictionary<string, object?> row, string key)
     {
@@ -367,9 +372,6 @@ internal sealed class MeetingReminderService : IDisposable
         return left.Start < right.End && left.End > right.Start;
     }
 
-    public void Dispose()
-    {
-    }
 }
 
 internal sealed record AttendeeInfo(string Name, string ResponseStatus, string Email = "");
