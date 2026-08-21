@@ -13,6 +13,8 @@ public static class SyncCommand
         var toOption     = new Option<string?>("--to") { Description = "End date (yyyy-MM-dd). Defaults to today + 90 days." };
         var modeOption   = new Option<string>("--mode") { Description = "Sync mode: 'block' (anonymous busy blocks) or 'copy' (copies title and description).", DefaultValueFactory = _ => "block" };
         var outsideHoursOption = new Option<bool>("--outside-hours") { Description = "Only sync events outside working hours (07:00-18:00).", DefaultValueFactory = _ => false };
+        var busyNameOption = new Option<string>("--busy-name") { Description = "Subject to use for 'block' mode busy events.", DefaultValueFactory = _ => "Busy" };
+        var busyLocationOption = new Option<string?>("--busy-location") { Description = "Location to use for 'block' mode busy events. Omit for no location." };
 
         var cmd = new Command("sync", "Sync events from one calendar to another");
         cmd.Options.Add(sourceOption);
@@ -21,6 +23,8 @@ public static class SyncCommand
         cmd.Options.Add(toOption);
         cmd.Options.Add(modeOption);
         cmd.Options.Add(outsideHoursOption);
+        cmd.Options.Add(busyNameOption);
+        cmd.Options.Add(busyLocationOption);
         cmd.Subcommands.Add(BuildPurge());
 
         cmd.SetAction(ctx =>
@@ -31,6 +35,8 @@ public static class SyncCommand
             var to           = ctx.GetValue(toOption);
             var modeStr      = ctx.GetValue(modeOption)!;
             var outsideHours = ctx.GetValue(outsideHoursOption);
+            var busyName     = ctx.GetValue(busyNameOption)!;
+            var busyLocation = ctx.GetValue(busyLocationOption);
 
             DateTime? fromDate = null;
             DateTime? toDate = null;
@@ -77,7 +83,7 @@ public static class SyncCommand
             var effectiveFrom = (fromDate ?? DateTime.Today).Date;
             var effectiveTo   = (toDate ?? DateTime.Today.AddDays(90)).Date;
 
-            var modeLabel   = mode == SyncMode.Copy ? "copy (title + description)" : "block (anonymous busy)";
+            var modeLabel   = mode == SyncMode.Copy ? "copy (title + description)" : $"block (anonymous '{busyName}')";
             var filterLabel = outsideHours ? " * outside working hours only" : string.Empty;
 
             Console.WriteLine();
@@ -88,17 +94,18 @@ public static class SyncCommand
             Console.WriteLine();
 
             var svc     = new CalendarSyncService();
-            var summary = svc.RunSync(source, target, effectiveFrom, effectiveTo, mode, outsideHours);
+            var summary = svc.RunSync(source, target, effectiveFrom, effectiveTo, mode, outsideHours, blockEventName: busyName, blockEventLocation: busyLocation);
 
             Console.WriteLine($"  Created  : {summary.Created}");
+            Console.WriteLine($"  Updated  : {summary.Updated}");
             Console.WriteLine($"  Deleted  : {summary.Deleted}");
             Console.WriteLine($"  Unchanged: {summary.Skipped}");
             if (summary.Errors > 0)
                 Console.WriteLine($"  Errors   : {summary.Errors}");
             Console.WriteLine();
-            Console.WriteLine(summary.Created == 0 && summary.Deleted == 0
+            Console.WriteLine(summary.Created == 0 && summary.Updated == 0 && summary.Deleted == 0
                 ? "  Nothing to do -- already in sync."
-                : $"  Done. {summary.Created} created, {summary.Deleted} deleted.");
+                : $"  Done. {summary.Created} created, {summary.Updated} updated, {summary.Deleted} deleted.");
         });
 
         return cmd;

@@ -7,6 +7,8 @@ internal sealed class SyncRuleEditorForm : Form
     private readonly ComboBox _sourceBox;
     private readonly ComboBox _targetBox;
     private readonly ComboBox _modeBox;
+    private readonly TextBox _blockEventNameBox;
+    private readonly TextBox _blockEventLocationBox;
     private readonly CheckBox _outsideHoursBox;
     private readonly NumericUpDown _startHour;
     private readonly NumericUpDown _endHour;
@@ -22,13 +24,15 @@ internal sealed class SyncRuleEditorForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         Width = 420;
-        Height = 320;
+        Height = 380;
 
         var working = rule.Clone();
 
         var sourceLabel = new Label { Text = "Source account", AutoSize = true };
         var targetLabel = new Label { Text = "Target account", AutoSize = true };
         var modeLabel = new Label { Text = "Mode", AutoSize = true };
+        var blockEventNameLabel = new Label { Text = "Busy event name", AutoSize = true };
+        var blockEventLocationLabel = new Label { Text = "Busy event location", AutoSize = true };
         var outsideLabel = new Label { Text = "Outside work hours", AutoSize = true };
         var hoursLabel = new Label { Text = "Work hours", AutoSize = true };
 
@@ -45,6 +49,25 @@ internal sealed class SyncRuleEditorForm : Form
         _modeBox.Items.Add(SyncMode.Block);
         _modeBox.Items.Add(SyncMode.Copy);
         _modeBox.SelectedItem = working.Mode;
+
+        _blockEventNameBox = new TextBox
+        {
+            Width = 260,
+            Text = string.IsNullOrWhiteSpace(working.BlockEventName) ? "Busy" : working.BlockEventName,
+            Enabled = working.Mode == SyncMode.Block
+        };
+        _blockEventLocationBox = new TextBox
+        {
+            Width = 260,
+            Text = working.BlockEventLocation,
+            Enabled = working.Mode == SyncMode.Block
+        };
+        _modeBox.SelectedIndexChanged += (_, _) =>
+        {
+            var isBlock = (SyncMode)_modeBox.SelectedItem! == SyncMode.Block;
+            _blockEventNameBox.Enabled = isBlock;
+            _blockEventLocationBox.Enabled = isBlock;
+        };
 
         _outsideHoursBox = new CheckBox { Checked = working.OutsideWorkHoursOnly };
 
@@ -72,6 +95,8 @@ internal sealed class SyncRuleEditorForm : Form
                 SourceAccount = source,
                 TargetAccount = target,
                 Mode = (SyncMode)_modeBox.SelectedItem!,
+                BlockEventName = string.IsNullOrWhiteSpace(_blockEventNameBox.Text) ? "Busy" : _blockEventNameBox.Text.Trim(),
+                BlockEventLocation = _blockEventLocationBox.Text.Trim(),
                 OutsideWorkHoursOnly = _outsideHoursBox.Checked,
                 WorkDayStartHour = (int)_startHour.Value,
                 WorkDayEndHour = (int)_endHour.Value
@@ -91,7 +116,7 @@ internal sealed class SyncRuleEditorForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 2,
-            RowCount = 7,
+            RowCount = 9,
             Padding = new Padding(12),
             AutoSize = true
         };
@@ -104,17 +129,21 @@ internal sealed class SyncRuleEditorForm : Form
         layout.Controls.Add(_targetBox, 1, 1);
         layout.Controls.Add(modeLabel, 0, 2);
         layout.Controls.Add(_modeBox, 1, 2);
-        layout.Controls.Add(outsideLabel, 0, 3);
-        layout.Controls.Add(_outsideHoursBox, 1, 3);
-        layout.Controls.Add(hoursLabel, 0, 4);
+        layout.Controls.Add(blockEventNameLabel, 0, 3);
+        layout.Controls.Add(_blockEventNameBox, 1, 3);
+        layout.Controls.Add(blockEventLocationLabel, 0, 4);
+        layout.Controls.Add(_blockEventLocationBox, 1, 4);
+        layout.Controls.Add(outsideLabel, 0, 5);
+        layout.Controls.Add(_outsideHoursBox, 1, 5);
+        layout.Controls.Add(hoursLabel, 0, 6);
 
         var hoursPanel = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true };
         hoursPanel.Controls.Add(_startHour);
         hoursPanel.Controls.Add(new Label { Text = "to", AutoSize = true, Padding = new Padding(6, 6, 6, 0) });
         hoursPanel.Controls.Add(_endHour);
-        layout.Controls.Add(hoursPanel, 1, 4);
+        layout.Controls.Add(hoursPanel, 1, 6);
 
-        layout.Controls.Add(_enabledBox, 1, 5);
+        layout.Controls.Add(_enabledBox, 1, 7);
 
         var buttons = new FlowLayoutPanel
         {

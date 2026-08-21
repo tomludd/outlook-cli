@@ -46,7 +46,7 @@ outlook contacts delete <id>
 Syncs busy time between Outlook calendars. Blocking events are tagged with a hidden marker and never re-synced, preventing cascading blocks.
 
 ```powershell
-outlook sync --source <account> --target <account> [--from yyyy-MM-dd] [--to yyyy-MM-dd] [--mode block|copy] [--outside-hours]
+outlook sync --source <account> --target <account> [--from yyyy-MM-dd] [--to yyyy-MM-dd] [--mode block|copy] [--outside-hours] [--busy-name <text>] [--busy-location <text>]
 ```
 
 | Option | Default | Description |
@@ -57,6 +57,10 @@ outlook sync --source <account> --target <account> [--from yyyy-MM-dd] [--to yyy
 | `--to` | today + 90 days | End date |
 | `--mode` | `block` | `block` — anonymous Busy/OOO placeholders · `copy` — copies title and description (shows as Free) |
 | `--outside-hours` | false | Only sync events outside 07:00–18:00 |
+| `--busy-name` | `Busy` | Subject used for `block` mode placeholders (OOO events keep "Out of Office") |
+| `--busy-location` | none | Location used for `block` mode placeholders. Omit for no location. `copy` mode is unaffected. |
+
+The Reminder App's sync rule editor exposes both fields per rule.
 
 ```powershell
 # Block busy time both ways between two work accounts

@@ -62,6 +62,18 @@ internal sealed class SyncConfigForm : Form
             DataPropertyName = nameof(SyncRule.Mode),
             Width = 70
         });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            HeaderText = "Busy name",
+            DataPropertyName = nameof(SyncRule.BlockEventName),
+            Width = 90
+        });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn
+        {
+            HeaderText = "Busy location",
+            DataPropertyName = nameof(SyncRule.BlockEventLocation),
+            Width = 110
+        });
         _grid.Columns.Add(new DataGridViewCheckBoxColumn
         {
             HeaderText = "Outside Hours",

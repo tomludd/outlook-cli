@@ -11,6 +11,8 @@ internal sealed class SyncRule
     public bool OutsideWorkHoursOnly { get; set; }
     public int WorkDayStartHour { get; set; } = 7;
     public int WorkDayEndHour { get; set; } = 18;
+    public string BlockEventName { get; set; } = "Busy";
+    public string BlockEventLocation { get; set; } = string.Empty;
 
     public SyncRule Clone()
     {
@@ -22,7 +24,9 @@ internal sealed class SyncRule
             Mode = Mode,
             OutsideWorkHoursOnly = OutsideWorkHoursOnly,
             WorkDayStartHour = WorkDayStartHour,
-            WorkDayEndHour = WorkDayEndHour
+            WorkDayEndHour = WorkDayEndHour,
+            BlockEventName = BlockEventName,
+            BlockEventLocation = BlockEventLocation
         };
     }
 }

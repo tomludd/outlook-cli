@@ -109,14 +109,16 @@ internal sealed class SyncScheduler : IDisposable
                         rule.Mode,
                         rule.OutsideWorkHoursOnly,
                         rule.WorkDayStartHour,
-                        rule.WorkDayEndHour);
+                        rule.WorkDayEndHour,
+                        rule.BlockEventName,
+                        rule.BlockEventLocation);
 
                     AddLog(new SyncRunLogEntry
                     {
                         Timestamp = DateTime.Now,
                         RuleLabel = BuildRuleLabel(rule),
                         Status = "OK",
-                        Message = $"{summary.Created} created, {summary.Deleted} deleted, {summary.Skipped} skipped"
+                        Message = $"{summary.Created} created, {summary.Updated} updated, {summary.Deleted} deleted, {summary.Skipped} skipped"
                     });
                 }
                 catch (Exception ex)

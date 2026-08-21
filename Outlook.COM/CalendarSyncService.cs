@@ -26,8 +26,13 @@ public class CalendarSyncService
         SyncMode mode = SyncMode.Block,
         bool outsideWorkHoursOnly = false,
         int workDayStartHour = 7,
-        int workDayEndHour = 18)
+        int workDayEndHour = 18,
+        string blockEventName = "Busy",
+        string? blockEventLocation = null)
     {
+        if (string.IsNullOrWhiteSpace(blockEventName)) blockEventName = "Busy";
+        blockEventLocation = string.IsNullOrWhiteSpace(blockEventLocation) ? null : blockEventLocation;
+
         var summary = new SyncSummary();
         var modeKey = mode == SyncMode.Copy ? "copy" : "block";
         var marker = $"[outlook-sync:{modeKey}:{ComputeRuleId(sourceAccount, targetAccount)}]";
@@ -54,8 +59,9 @@ public class CalendarSyncService
             .Select(e => (Start: ParseDate(e["start"]), End: ParseDate(e["end"])))
             .ToHashSet();
 
-        // Delete synced events whose source slot no longer exists in the window
-        var syncedSlots = new HashSet<(DateTime Start, DateTime End)>();
+        // Delete synced events whose source slot no longer exists in the window;
+        // keep the rest around so the pass below can refresh stale subject/location.
+        var syncedBySlot = new Dictionary<(DateTime Start, DateTime End), Dictionary<string, object?>>();
         foreach (var synced in ourSyncedEvents)
         {
             var slot = (Start: ParseDate(synced["start"]), End: ParseDate(synced["end"]));
@@ -67,7 +73,7 @@ public class CalendarSyncService
             }
             else
             {
-                syncedSlots.Add(slot);
+                syncedBySlot[slot] = synced;
             }
         }
 
@@ -77,15 +83,45 @@ public class CalendarSyncService
             var srcStart = ParseDate(srcEvent["start"]);
             var srcEnd = ParseDate(srcEvent["end"]);
             var slot = (Start: srcStart, End: srcEnd);
-
-            if (syncedSlots.Contains(slot)) { summary.Skipped++; continue; }
-            if (mode == SyncMode.Block && TargetAlreadyHasEvent(realTargetSlots, srcStart, srcEnd)) { summary.Skipped++; continue; }
-
             var srcBusyStatus = (string?)srcEvent["busyStatus"];
+
+            if (syncedBySlot.TryGetValue(slot, out var existing))
+            {
+                if (mode == SyncMode.Block)
+                {
+                    var expectedSubject = srcBusyStatus == "Out of Office" ? "Out of Office" : blockEventName;
+                    var currentSubject = (string?)existing["subject"];
+                    var currentLocation = (string?)existing["location"];
+
+                    var subjectStale = !string.Equals(currentSubject, expectedSubject, StringComparison.Ordinal);
+                    var locationStale = blockEventLocation is not null &&
+                        !string.Equals(currentLocation, blockEventLocation, StringComparison.Ordinal);
+
+                    if (subjectStale || locationStale)
+                    {
+                        try
+                        {
+                            calService.UpdateEvent((string)existing["id"]!, expectedSubject, null, null, blockEventLocation, null, targetAccount);
+                            summary.Updated++;
+                        }
+                        catch
+                        {
+                            summary.Errors++;
+                        }
+                        continue;
+                    }
+                }
+
+                summary.Skipped++;
+                continue;
+            }
+
+            if (mode == SyncMode.Block && TargetAlreadyHasEvent(realTargetSlots, srcStart, srcEnd)) { summary.Skipped++; continue; }
 
             string subject;
             string body;
             int busyStatus;
+            string? location = null;
 
             if (mode == SyncMode.Copy)
             {
@@ -96,9 +132,10 @@ public class CalendarSyncService
             }
             else
             {
-                subject = srcBusyStatus == "Out of Office" ? "Out of Office" : "Busy";
+                subject = srcBusyStatus == "Out of Office" ? "Out of Office" : blockEventName;
                 body = $"Blocked from {sourceAccount}\n{marker}";
                 busyStatus = srcBusyStatus == "Out of Office" ? OlOutOfOffice : OlBusy;
+                location = blockEventLocation;
             }
 
             try
@@ -107,7 +144,7 @@ public class CalendarSyncService
                     subject: subject,
                     startDateTime: srcStart,
                     endDateTime: srcEnd,
-                    location: null,
+                    location: location,
                     body: body,
                     isMeeting: false,
                     attendees: null,
@@ -179,6 +216,7 @@ public class CalendarSyncService
 public class SyncSummary
 {
     public int Created { get; set; }
+    public int Updated { get; set; }
     public int Deleted { get; set; }
     public int Skipped { get; set; }
     public int Errors { get; set; }
