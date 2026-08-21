@@ -1,3 +1,5 @@
+using Outlook.COM;
+
 namespace Outlook.ReminderApp;
 
 /// <summary>
@@ -30,6 +32,13 @@ internal sealed class MeetingCache : IDisposable
 
     /// <summary>Error message from the most recent failed refresh, or null if none.</summary>
     public string? LastError { get; private set; }
+
+    /// <summary>
+    /// True when Outlook has stopped responding to COM calls entirely (not merely rejected one as
+    /// busy) for long enough that it looks hung, and the process is one we launched in the
+    /// background ourselves rather than one the user started. See <see cref="OutlookHealthMonitor"/>.
+    /// </summary>
+    public bool IsOutlookLikelyHung => OutlookHealthMonitor.IsLikelyHung;
 
     /// <summary>True once the first refresh has completed successfully.</summary>
     public bool IsLoaded => LastRefreshed > DateTime.MinValue;

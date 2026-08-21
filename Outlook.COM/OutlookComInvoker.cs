@@ -53,12 +53,23 @@ internal static class OutlookComInvoker
         {
             try
             {
-                return ComTimeout.Run(work);
+                var result = ComTimeout.Run(work);
+                OutlookHealthMonitor.RecordSuccess();
+                return result;
+            }
+            catch (TimeoutException)
+            {
+                // Outlook never responded at all — as opposed to rejecting the call because it
+                // was busy — feeds OutlookHealthMonitor's hang detection.
+                OutlookHealthMonitor.RecordTimeout();
+                throw;
             }
             catch (COMException ex) when (IsStaleConnection(ex))
             {
                 OutlookComHost.Reset();
-                return ComTimeout.Run(work);
+                var result = ComTimeout.Run(work);
+                OutlookHealthMonitor.RecordSuccess();
+                return result;
             }
             catch (COMException ex) when (IsBusyRejected(ex) && attempt < MaxBusyAttempts)
             {

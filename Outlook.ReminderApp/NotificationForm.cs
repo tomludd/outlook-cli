@@ -1,3 +1,5 @@
+using Outlook.COM;
+
 namespace Outlook.ReminderApp;
 
 internal sealed class NotificationForm : Form
@@ -17,11 +19,13 @@ internal sealed class NotificationForm : Form
     private readonly FlowLayoutPanel _meetingList;
     private readonly NotifyIcon _trayIcon;
     private readonly Icon _trayBellIcon;
+    private readonly ToolStripMenuItem _restartOutlookMenuItem;
 
     private IReadOnlyList<ReminderMeeting> _currentMeetings = Array.Empty<ReminderMeeting>();
     private ReminderMeeting? _nextMeeting;
     private IReadOnlyList<string> _renderedMeetingIds = Array.Empty<string>();
     private int _screenCheckTick;
+    private bool _hungBalloonShown;
 
     public NotificationForm(MeetingReminderService reminderService, MeetingCache cache, SyncUiController syncUi)
     {
@@ -75,6 +79,13 @@ internal sealed class NotificationForm : Form
         var trayMenu = new ContextMenuStrip();
         trayMenu.Items.Add("Sync settings...", null, (_, _) => _syncUi.ShowConfig(this));
 
+        _restartOutlookMenuItem = new ToolStripMenuItem("Restart Outlook (stuck)...", null, (_, _) => OnRestartOutlookRequested())
+        {
+            Enabled = false
+        };
+        trayMenu.Items.Add(_restartOutlookMenuItem);
+        trayMenu.Opening += (_, _) => _restartOutlookMenuItem.Enabled = _cache.IsOutlookLikelyHung;
+
         _trayBellIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? CreateTrayBellIcon();
 
         _trayIcon = new NotifyIcon
@@ -84,6 +95,7 @@ internal sealed class NotificationForm : Form
             Visible = true,
             ContextMenuStrip = trayMenu
         };
+        _trayIcon.BalloonTipClicked += (_, _) => OnRestartOutlookRequested();
 
         // Environment.Exit(0) instead of Application.Exit(): Application.Exit() relies on every
         // open form's FormClosed handler running cleanly (including AgendaForm's) before this
@@ -159,6 +171,60 @@ internal sealed class NotificationForm : Form
             UpdateRowCountdowns(now);
             UpdateTrayIcon(now);
         }
+        CheckOutlookHealth();
+    }
+
+    /// <summary>
+    /// Surfaces a one-shot balloon tip the first time Outlook looks hung after each refresh, so the
+    /// user finds out even if they never open the tray menu. Re-arms once Outlook recovers, so a
+    /// later hang prompts again instead of staying silent for the rest of the session.
+    /// </summary>
+    private void CheckOutlookHealth()
+    {
+        if (!_cache.IsOutlookLikelyHung)
+        {
+            _hungBalloonShown = false;
+            return;
+        }
+
+        if (_hungBalloonShown)
+            return;
+
+        _hungBalloonShown = true;
+        _trayIcon.BalloonTipTitle = "Outlook appears stuck";
+        _trayIcon.BalloonTipText =
+            "Outlook hasn't responded for a while and may be hung in the background. Click here to restart it.";
+        _trayIcon.BalloonTipIcon = ToolTipIcon.Warning;
+        _trayIcon.ShowBalloonTip(15000);
+    }
+
+    private void OnRestartOutlookRequested()
+    {
+        if (!_cache.IsOutlookLikelyHung)
+        {
+            MessageBox.Show(this,
+                "Outlook doesn't currently look stuck, so there's nothing to restart.",
+                "Restart Outlook", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var confirm = MessageBox.Show(this,
+            "Outlook has stopped responding and appears to be stuck in the background.\n\n" +
+            "Restarting it will forcibly close that Outlook process. If you have Outlook open " +
+            "yourself with unsaved work, save it before continuing.\n\nRestart Outlook now?",
+            "Restart Outlook?", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+
+        if (confirm != DialogResult.Yes)
+            return;
+
+        _hungBalloonShown = false;
+        var restarted = OutlookHealthMonitor.TryRestartSpawnedOutlook();
+        _trayIcon.ShowBalloonTip(5000,
+            restarted ? "Outlook restarted" : "Restart failed",
+            restarted
+                ? "The stuck Outlook process was closed. It will relaunch automatically on the next refresh."
+                : "Could not restart Outlook. You may need to end the process manually from Task Manager.",
+            restarted ? ToolTipIcon.Info : ToolTipIcon.Error);
     }
 
     private void UpdateFromCache(DateTime now)

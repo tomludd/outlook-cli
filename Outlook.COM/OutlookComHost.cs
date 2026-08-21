@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
@@ -33,8 +34,12 @@ namespace Outlook.COM;
 [SupportedOSPlatform("windows")]
 internal static class OutlookComHost
 {
+    private const string OutlookProcessName = "OUTLOOK";
+
     private static dynamic? _app;
     private static readonly object _lock = new();
+    private static int? _spawnedPid;
+    private static DateTime? _spawnedStartTime;
 
     /// <summary>
     /// Returns the process-wide <c>Outlook.Application</c> RCW, creating it on
@@ -54,16 +59,82 @@ internal static class OutlookComHost
             // thread that will invoke all COM calls through ComTimeout.Run.
             _app = ComTimeout.Run(() =>
             {
+                var pidsBefore = GetRunningOutlookPids();
+
                 var type = Type.GetTypeFromProgID("Outlook.Application")
                     ?? throw new InvalidOperationException(
                         "Microsoft Outlook is not installed or not registered on this system.");
 
-                return Activator.CreateInstance(type)
+                var instance = Activator.CreateInstance(type)
                     ?? throw new InvalidOperationException("Failed to create Outlook.Application instance.");
+
+                TrackIfWeSpawnedOutlook(pidsBefore);
+                return instance;
             });
 
             return _app;
         }
+    }
+
+    private static HashSet<int> GetRunningOutlookPids()
+    {
+        var pids = new HashSet<int>();
+        foreach (var process in Process.GetProcessesByName(OutlookProcessName))
+        {
+            using (process) pids.Add(process.Id);
+        }
+        return pids;
+    }
+
+    /// <summary>
+    /// Records the PID of the OUTLOOK.EXE process that came into existence as a side effect of
+    /// the <c>Activator.CreateInstance</c> call above — i.e. one that did not exist before we
+    /// asked COM to activate <c>Outlook.Application</c>, meaning COM launched it in the
+    /// background rather than binding to an instance the user already had open. Only a process
+    /// we can prove we spawned this way is ever eligible for <see cref="OutlookHealthMonitor"/>
+    /// to kill; an instance the user started is never tracked here and so can never be killed.
+    /// </summary>
+    private static void TrackIfWeSpawnedOutlook(HashSet<int> pidsBefore)
+    {
+        foreach (var process in Process.GetProcessesByName(OutlookProcessName))
+        {
+            using (process)
+            {
+                if (!pidsBefore.Contains(process.Id))
+                {
+                    _spawnedPid = process.Id;
+                    _spawnedStartTime = process.StartTime;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns the OUTLOOK.EXE process we spawned in the background, if it is still running
+    /// under the same PID and start time we recorded (guards against PID reuse). Returns null
+    /// if we never spawned one (the user's own Outlook was already running) or it has since exited.
+    /// Caller owns the returned <see cref="Process"/> and must dispose it.
+    /// </summary>
+    internal static Process? TryGetSpawnedProcess()
+    {
+        if (_spawnedPid is not int pid)
+            return null;
+
+        try
+        {
+            var process = Process.GetProcessById(pid);
+            if (process.StartTime == _spawnedStartTime)
+                return process;
+
+            process.Dispose();
+        }
+        catch (ArgumentException)
+        {
+            // Process no longer exists.
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -92,6 +163,8 @@ internal static class OutlookComHost
         {
             old = _app;
             _app = null;
+            _spawnedPid = null;
+            _spawnedStartTime = null;
         }
 
         if (old is not null)
