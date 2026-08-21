@@ -160,6 +160,10 @@ internal sealed class AgendaForm : Form
     {
         if (m.Msg == WmSysCommand && ((int)m.WParam & 0xFFF0) == ScRestore && IsHandleCreated)
         {
+            // The cursor is right on the taskbar button being clicked at this point,
+            // so it's a fresher/better signal for the target screen than whatever
+            // _preferredScreen was left over from the last deactivate.
+            _preferredScreen = Screen.FromPoint(Cursor.Position);
             _needsInitialCenter = true;
             Opacity = 0;
             base.WndProc(ref m); // triggers WM_SIZE → SizeChanged → RefreshAgenda
@@ -290,12 +294,17 @@ internal sealed class AgendaForm : Form
         return sb.ToString();
     }
 
-    private void CenterOnScreen()
+    private Rectangle GetTargetWorkingArea()
     {
         // Use the screen the cursor was on when the form was last deactivated
         // (at that point the cursor is on the working screen, not the taskbar).
         // Fall back to cursor-current screen for the very first open.
-        var workingArea = (_preferredScreen ?? Screen.FromPoint(Cursor.Position)).WorkingArea;
+        return (_preferredScreen ?? Screen.FromPoint(Cursor.Position)).WorkingArea;
+    }
+
+    private void CenterOnScreen()
+    {
+        var workingArea = GetTargetWorkingArea();
         Left = workingArea.Left + (workingArea.Width - Width) / 2;
         Top = workingArea.Top + (workingArea.Height - Height) / 2;
     }
@@ -451,7 +460,7 @@ internal sealed class AgendaForm : Form
             y = 60;
         }
 
-        int maxHeight = Screen.FromPoint(Cursor.Position).WorkingArea.Height * 3 / 4;
+        int maxHeight = GetTargetWorkingArea().Height * 3 / 4;
         int contentHeight = y + 36; // rows + header
         Height = Math.Min(Math.Max(contentHeight, 100), maxHeight);
 
