@@ -385,8 +385,41 @@ public class OutlookMailService
 
     private static Dictionary<string, object?> MailToDict(dynamic mail, bool includeBody)
     {
-        var to = (string)mail.To;
-        var cc = (string)mail.CC;
+        // Build "Name <email>" strings from the Recipients collection, grouped by type.
+        // mail.To / mail.CC / mail.BCC only return display names, so we use Recipients
+        // to get the actual SMTP addresses.
+        var toRecips = new List<string>();
+        var ccRecips = new List<string>();
+        var bccRecips = new List<string>();
+        var recipients = mail.Recipients;
+        try
+        {
+            for (int i = 1; i <= recipients.Count; i++)
+            {
+                dynamic? r = null;
+                try
+                {
+                    r = recipients.Item(i);
+                    var name = (string)r.Name;
+                    var address = ResolveSmtpAddress(mail, r);
+                    var formatted = string.IsNullOrEmpty(address)
+                        ? name
+                        : $"{name} <{address}>";
+                    switch ((int)r.Type)
+                    {
+                        case 1: toRecips.Add(formatted); break;   // olTo
+                        case 2: ccRecips.Add(formatted); break;   // olCC
+                        case 3: bccRecips.Add(formatted); break;  // olBCC
+                    }
+                }
+                finally { OutlookComHost.Release(r); }
+            }
+        }
+        finally { OutlookComHost.Release(recipients); }
+
+        var to = string.Join("; ", toRecips);
+        var cc = string.Join("; ", ccRecips);
+        var bcc = string.Join("; ", bccRecips);
 
         var dict = new Dictionary<string, object?>
         {
@@ -396,6 +429,7 @@ public class OutlookMailService
             ["senderName"] = (string)mail.SenderName,
             ["to"] = includeBody ? to : (to?.Length > 80 ? to[..80] + "..." : to),
             ["cc"] = includeBody ? cc : (cc?.Length > 80 ? cc[..80] + "..." : cc),
+            ["bcc"] = includeBody ? bcc : (bcc?.Length > 80 ? bcc[..80] + "..." : bcc),
             ["receivedTime"] = ((DateTime)mail.ReceivedTime).ToString("yyyy-MM-dd HH:mm"),
             ["isRead"] = (bool)mail.UnRead == false,
         };
@@ -430,5 +464,40 @@ public class OutlookMailService
 
     private static string EscapeDasl(string value) =>
         value.Replace("'", "''").Replace("\"", "\"\"");
+
+    /// <summary>
+    /// Resolves a recipient's SMTP address. For Exchange recipients the Address
+    /// property returns an EX-format distinguished name, so we use PropertyAccessor
+    /// to read the PR_SMTP_ADDRESS MAPI property. Falls back to Address if that fails.
+    /// </summary>
+    private static string ResolveSmtpAddress(dynamic mail, dynamic recipient)
+    {
+        try
+        {
+            var address = (string)recipient.Address;
+            if (string.IsNullOrEmpty(address))
+                return string.Empty;
+
+            // Already an SMTP address (contains @)
+            if (address.Contains('@'))
+                return address;
+
+            // Exchange EX address — try to resolve via PropertyAccessor
+            const string PR_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E";
+            try
+            {
+                var smtp = (string?)recipient.PropertyAccessor.GetProperty(PR_SMTP_ADDRESS);
+                if (!string.IsNullOrEmpty(smtp))
+                    return smtp;
+            }
+            catch { /* Property not available — fall through */ }
+
+            return address;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
 
 }

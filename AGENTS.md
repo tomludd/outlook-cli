@@ -49,6 +49,17 @@ dotnet tool install --global outlook-cli --add-source ./nupkg
 dotnet tool update --global outlook-cli --add-source ./nupkg
 ```
 
+## Release a new version
+
+1. Bump `<Version>` in `Outlook.Cli/Outlook.Cli.csproj`.
+2. Commit the version bump.
+3. Tag the commit as `release/<version>` (e.g. `release/1.2.0`).
+4. Push the branch and the tag:
+
+```powershell
+git push && git push origin release/<version>
+```
+
 ## Run ReminderApp
 
 > **ReminderApp is always running.** Kill the process before building or the build will fail (locked exe).
