@@ -9,9 +9,9 @@ A global .NET CLI tool for Microsoft Outlook on Windows. Manage email, calendar 
 ### 📧 Email
 
 ```powershell
-outlook email list [--folder inbox|sent|drafts|outbox] [--count 20] [--subject <filter>] [--sender <email>] [--account <name>] [--after yyyy-MM-dd] [--before yyyy-MM-dd]
+outlook email list [--folder inbox|sent|drafts|outbox] [--count 20] [--subject <filter>] [--sender <email>] [--account <name>] [--after yyyy-MM-dd] [--before yyyy-MM-dd] [--body]
 outlook email get <id>
-outlook email search <query> [--max 20] [--account <name>]
+outlook email search <query> [--max 20] [--account <name>] [--body]
 outlook email send --to <email> --subject <text> --body <text> [--cc <email>] [--bcc <email>] [--html] [--importance low|normal|high] [--attach <path>] [--account <name>]
 outlook email reply <id> --body <text> [--all]
 outlook email forward <id> --to <email> [--body <text>]
@@ -20,7 +20,7 @@ outlook email forward <id> --to <email> [--body <text>]
 ### 📅 Calendar
 
 ```powershell
-outlook calendar list <yyyy-MM-dd> <yyyy-MM-dd> [--account <name>]
+outlook calendar list <yyyy-MM-dd> <yyyy-MM-dd> [--account <name>] [--include-blocked]
 outlook calendar get <id>
 outlook calendar create --subject <text> --start-date yyyy-MM-dd --start-time HH:mm [--end-date yyyy-MM-dd] [--end-time HH:mm] [--location <text>] [--body <text>] [--meeting] [--attendees <email;email>] [--account <name>]
 outlook calendar update <id> [--subject <text>] [--start-date yyyy-MM-dd] [--start-time HH:mm] [--end-date yyyy-MM-dd] [--end-time HH:mm] [--location <text>] [--body <text>] [--account <name>]
@@ -28,6 +28,7 @@ outlook calendar delete <id> [--account <name>]
 outlook calendar free-slots <yyyy-MM-dd> [--to yyyy-MM-dd] [--duration 30] [--work-start 9] [--work-end 17] [--account <name>]
 outlook calendar attendees <id> [--account <name>]
 outlook calendar calendars
+outlook calendar respond <id> <accept|decline|tentative> [--account <name>]
 ```
 
 ### 👤 Contacts
@@ -47,6 +48,7 @@ Syncs busy time between Outlook calendars. Blocking events are tagged with a hid
 
 ```powershell
 outlook sync --source <account> --target <account> [--from yyyy-MM-dd] [--to yyyy-MM-dd] [--mode block|copy] [--outside-hours] [--busy-name <text>] [--busy-location <text>]
+outlook sync purge --account <account> [--from yyyy-MM-dd] [--to yyyy-MM-dd]
 ```
 
 | Option | Default | Description |
