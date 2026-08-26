@@ -40,6 +40,9 @@ internal sealed class AgendaForm : Form
     private Panel _listPanel = null!;
     private System.Windows.Forms.Timer _countdownTimer = null!;
     private Label? _staleLabel;
+    private Label _dateLabel = null!;
+    private Label _dayOffsetLabel = null!;
+    private DateTime _selectedDate = DateTime.Today;
     private bool _needsRefresh = true;
     private Panel? _nowSepPanel;
     private Label? _nowSepCountdownLabel;
@@ -221,18 +224,47 @@ internal sealed class AgendaForm : Form
             BackColor = Color.FromArgb(30, 34, 44)
         };
 
-        var dateLabel = new Label
+        _dateLabel = new Label
         {
             AutoSize = false,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(12, 0, 12, 0),
+            Padding = new Padding(12, 0, 0, 0),
             Font = new Font("Segoe UI", 10, FontStyle.Bold),
             ForeColor = Color.WhiteSmoke,
-            Text = DateTime.Now.ToString("dddd, d MMMM")
+            Text = _selectedDate.ToString("dddd, d MMMM")
         };
 
-        header.Controls.Add(dateLabel);
+        var navPanel = new Panel
+        {
+            Dock = DockStyle.Right,
+            Width = 100,
+            BackColor = Color.Transparent
+        };
+
+        var prevButton = MaterialIcons.MakeButton(MaterialIcons.ChevronLeft, 0, 4, 28,
+            Color.FromArgb(140, 145, 160), Color.FromArgb(30, 34, 44));
+        prevButton.Click += (_, _) => ChangeSelectedDate(-1);
+        navPanel.Controls.Add(prevButton);
+
+        _dayOffsetLabel = new Label
+        {
+            Left = 28, Top = 4, Width = 44, Height = 28,
+            Font = new Font("Segoe UI", 8, FontStyle.Bold),
+            ForeColor = Color.FromArgb(140, 145, 160),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Text = string.Empty,
+            Visible = false
+        };
+        navPanel.Controls.Add(_dayOffsetLabel);
+
+        var nextButton = MaterialIcons.MakeButton(MaterialIcons.ChevronRight, 72, 4, 28,
+            Color.FromArgb(140, 145, 160), Color.FromArgb(30, 34, 44));
+        nextButton.Click += (_, _) => ChangeSelectedDate(1);
+        navPanel.Controls.Add(nextButton);
+
+        header.Controls.Add(_dateLabel);
+        header.Controls.Add(navPanel);
 
         _staleLabel = new Label
         {
@@ -251,7 +283,7 @@ internal sealed class AgendaForm : Form
         _listPanel = new Panel
         {
             Dock = DockStyle.Fill,
-            AutoScroll = true,
+            AutoScroll = false,
             Padding = Padding.Empty,
             BackColor = Color.FromArgb(22, 26, 36)
         };
@@ -384,7 +416,10 @@ internal sealed class AgendaForm : Form
 
         _lastLoadingMessage = string.Empty;
 
-        var meetings = _reminderService.GetTodaysMeetings(now, _cache.All);
+        var meetings = _cache.All
+            .Where(m => m.Start.Date == _selectedDate.Date)
+            .OrderBy(m => m.Start)
+            .ToList();
 
         var fingerprint = ComputeMeetingsFingerprint(meetings, now);
         if (fingerprint == _lastMeetingsFingerprint)
@@ -451,7 +486,7 @@ internal sealed class AgendaForm : Form
                 AutoSize = false,
                 Left = 12, Top = 16,
                 Width = rowWidth, Height = 32,
-                Text = "No meetings today",
+                Text = _selectedDate.Date == DateTime.Today ? "No meetings today" : "No meetings on this day",
                 Font = new Font("Segoe UI", 10, FontStyle.Regular),
                 ForeColor = Color.FromArgb(140, 145, 160),
                 TextAlign = ContentAlignment.MiddleCenter
@@ -463,6 +498,9 @@ internal sealed class AgendaForm : Form
         int maxHeight = GetTargetWorkingArea().Height * 3 / 4;
         int contentHeight = y + 36; // rows + header
         Height = Math.Min(Math.Max(contentHeight, 100), maxHeight);
+
+        // Enable AutoScroll only if content exceeds visible area
+        _listPanel.AutoScroll = (y > Height - 36);
 
         if (shouldCenterOnShow)
             CenterOnScreen();
@@ -821,6 +859,34 @@ internal sealed class AgendaForm : Form
         }
         if (colorChanged)
             _nowSepPanel?.Invalidate();
+    }
+
+    private void ChangeSelectedDate(int dayOffset)
+    {
+        _selectedDate = _selectedDate.AddDays(dayOffset);
+        _dateLabel.Text = _selectedDate.ToString("dddd, d MMMM");
+        
+        // Update day offset indicator
+        int daysFromToday = (_selectedDate.Date - DateTime.Today).Days;
+        if (daysFromToday > 0)
+        {
+            _dayOffsetLabel.Text = $"+{daysFromToday}";
+            _dayOffsetLabel.ForeColor = Color.FromArgb(100, 160, 230);
+            _dayOffsetLabel.Visible = true;
+        }
+        else if (daysFromToday < 0)
+        {
+            _dayOffsetLabel.Text = daysFromToday.ToString();
+            _dayOffsetLabel.ForeColor = Color.FromArgb(140, 145, 160);
+            _dayOffsetLabel.Visible = true;
+        }
+        else
+        {
+            _dayOffsetLabel.Visible = false;
+        }
+        
+        _lastMeetingsFingerprint = string.Empty; // Force refresh
+        RefreshAgenda();
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

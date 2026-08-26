@@ -12,6 +12,8 @@ internal static class MaterialIcons
     public const string ThumbUp     = "\ue8dc"; // accept
     public const string ThumbDown   = "\ue8db"; // decline
     public const string Close       = "\ue5cd"; // dismiss
+    public const string ChevronLeft = "\ue5cb"; // navigate previous
+    public const string ChevronRight = "\ue5cc"; // navigate next
 
     private static readonly PrivateFontCollection _fontCollection = Load();
     public  static readonly FontFamily Family = _fontCollection.Families[0];
