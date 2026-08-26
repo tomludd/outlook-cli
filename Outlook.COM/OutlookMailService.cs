@@ -64,13 +64,13 @@ public class OutlookMailService
         };
     }
 
-    public List<Dictionary<string, object?>> ListEmails(string? folder, int count, string? filterSubject, string? filterSender, string? account = null, string? receivedAfter = null, string? receivedBefore = null)
-        => OutlookComInvoker.Run(() => ListEmailsCore(folder, count, filterSubject, filterSender, account, receivedAfter, receivedBefore));
+    public List<Dictionary<string, object?>> ListEmails(string? folder, int count, string? filterSubject, string? filterSender, string? account = null, string? receivedAfter = null, string? receivedBefore = null, bool includeBody = false)
+        => OutlookComInvoker.Run(() => ListEmailsCore(folder, count, filterSubject, filterSender, account, receivedAfter, receivedBefore, includeBody));
 
-    private List<Dictionary<string, object?>> ListEmailsCore(string? folder, int count, string? filterSubject, string? filterSender, string? account, string? receivedAfter, string? receivedBefore)
+    private List<Dictionary<string, object?>> ListEmailsCore(string? folder, int count, string? filterSubject, string? filterSender, string? account, string? receivedAfter, string? receivedBefore, bool includeBody)
     {
         if (!string.IsNullOrEmpty(account))
-            return CollectEmails(GetFolder(folder, account), count, filterSubject, filterSender, account, receivedAfter, receivedBefore);
+            return CollectEmails(GetFolder(folder, account), count, filterSubject, filterSender, account, receivedAfter, receivedBefore, includeBody);
 
         // Aggregate across all accounts when no account is specified
         int folderType = (folder?.ToLowerInvariant()) switch
@@ -89,7 +89,7 @@ public class OutlookMailService
             for (int i = 1; i <= stores.Count; i++)
             {
                 dynamic? store = null;
-                try { store = stores.Item(i); all.AddRange(CollectEmails(store.GetDefaultFolder(folderType), count, filterSubject, filterSender, (string)store.DisplayName, receivedAfter, receivedBefore)); }
+                try { store = stores.Item(i); all.AddRange(CollectEmails(store.GetDefaultFolder(folderType), count, filterSubject, filterSender, (string)store.DisplayName, receivedAfter, receivedBefore, includeBody)); }
                 catch { /* Store may not have this folder */ }
                 finally { OutlookComHost.Release(store); }
             }
@@ -104,7 +104,7 @@ public class OutlookMailService
         return all.Take(count).ToList();
     }
 
-    private List<Dictionary<string, object?>> CollectEmails(dynamic mailFolder, int count, string? filterSubject, string? filterSender, string? accountName, string? receivedAfter = null, string? receivedBefore = null)
+    private List<Dictionary<string, object?>> CollectEmails(dynamic mailFolder, int count, string? filterSubject, string? filterSender, string? accountName, string? receivedAfter = null, string? receivedBefore = null, bool includeBody = false)
     {
         var items = mailFolder.Items;
         items.Sort("[ReceivedTime]", true); // newest first
@@ -133,7 +133,7 @@ public class OutlookMailService
                 try
                 {
                     item = items.Item(i);
-                    var email = MailToDict(item, includeBody: false);
+                    var email = MailToDict(item, includeBody);
                     if (accountName != null) email["account"] = accountName;
                     emails.Add(email);
                 }
@@ -321,10 +321,10 @@ public class OutlookMailService
         }
     }
 
-    public List<Dictionary<string, object?>> SearchEmails(string query, int maxResults, string? account = null)
-        => OutlookComInvoker.Run(() => SearchEmailsCore(query, maxResults, account));
+    public List<Dictionary<string, object?>> SearchEmails(string query, int maxResults, string? account = null, bool includeBody = false)
+        => OutlookComInvoker.Run(() => SearchEmailsCore(query, maxResults, account, includeBody));
 
-    private List<Dictionary<string, object?>> SearchEmailsCore(string query, int maxResults, string? account)
+    private List<Dictionary<string, object?>> SearchEmailsCore(string query, int maxResults, string? account, bool includeBody)
     {
         var filter = $"@SQL=(\"urn:schemas:httpmail:subject\" LIKE '%{EscapeDasl(query)}%' " +
                      $"OR \"urn:schemas:httpmail:textdescription\" LIKE '%{EscapeDasl(query)}%' " +
@@ -344,7 +344,7 @@ public class OutlookMailService
                     try
                     {
                         item = items.Item(i);
-                        var email = MailToDict(item, includeBody: false);
+                        var email = MailToDict(item, includeBody);
                         if (accountName != null) email["account"] = accountName;
                         results.Add(email);
                     }

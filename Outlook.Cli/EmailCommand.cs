@@ -29,10 +29,12 @@ public static class EmailCommand
         var accountOpt = new Option<string?>("--account") { Description = "Account display name (omit for all accounts)" };
         var afterOpt   = new Option<string?>("--after") { Description = "Received on or after yyyy-MM-dd" };
         var beforeOpt  = new Option<string?>("--before") { Description = "Received before yyyy-MM-dd" };
+        var bodyOpt    = new Option<bool>("--body") { Description = "Include email body in results", DefaultValueFactory = _ => false };
 
         var cmd = new Command("list", "List recent emails");
         cmd.Options.Add(folderOpt); cmd.Options.Add(countOpt); cmd.Options.Add(subjectOpt);
         cmd.Options.Add(senderOpt); cmd.Options.Add(accountOpt); cmd.Options.Add(afterOpt); cmd.Options.Add(beforeOpt);
+        cmd.Options.Add(bodyOpt);
         cmd.SetAction(ctx =>
         {
             var folder  = ctx.GetValue(folderOpt);
@@ -42,8 +44,9 @@ public static class EmailCommand
             var account = ctx.GetValue(accountOpt);
             var after   = ctx.GetValue(afterOpt);
             var before  = ctx.GetValue(beforeOpt);
+            var body    = ctx.GetValue(bodyOpt);
             var svc = new OutlookMailService();
-            var emails = svc.ListEmails(folder, count, subject, sender, account, after, before);
+            var emails = svc.ListEmails(folder, count, subject, sender, account, after, before, body);
             Console.WriteLine(JsonSerializer.Serialize(emails, JsonOptions));
         });
         return cmd;
@@ -69,17 +72,19 @@ public static class EmailCommand
         var queryArg   = new Argument<string>("query") { Description = "Search keywords (subject, body, sender)" };
         var maxOpt     = new Option<int>("--max") { Description = "Maximum results (max 100)", DefaultValueFactory = _ => 20 };
         var accountOpt = new Option<string?>("--account") { Description = "Account display name (omit for all accounts)" };
+        var bodyOpt    = new Option<bool>("--body") { Description = "Include email body in results", DefaultValueFactory = _ => false };
 
         var cmd = new Command("search", "Search emails by keyword");
         cmd.Arguments.Add(queryArg);
-        cmd.Options.Add(maxOpt); cmd.Options.Add(accountOpt);
+        cmd.Options.Add(maxOpt); cmd.Options.Add(accountOpt); cmd.Options.Add(bodyOpt);
         cmd.SetAction(ctx =>
         {
             var query   = ctx.GetValue(queryArg)!;
             var max     = Math.Clamp(ctx.GetValue(maxOpt), 1, 100);
             var account = ctx.GetValue(accountOpt);
+            var body    = ctx.GetValue(bodyOpt);
             var svc = new OutlookMailService();
-            var emails = svc.SearchEmails(query, max, account);
+            var emails = svc.SearchEmails(query, max, account, body);
             Console.WriteLine(JsonSerializer.Serialize(emails, JsonOptions));
         });
         return cmd;
