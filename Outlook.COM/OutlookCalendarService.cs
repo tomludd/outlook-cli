@@ -568,6 +568,7 @@ public class OutlookCalendarService
             ["isRecurring"] = (bool)appointment.IsRecurring,
             ["isMeeting"] = (int)appointment.MeetingStatus == OlMeeting,
             ["isCancelled"] = isCancelled,
+            ["isAllDay"] = (bool)appointment.AllDayEvent,
             ["responseRequested"] = (bool)appointment.ResponseRequested
         };
 

@@ -166,6 +166,12 @@ internal sealed class MeetingReminderService
             isCancelled = c;
         }
 
+        bool isAllDay = false;
+        if (row.TryGetValue("isAllDay", out var isAllDayRaw) && isAllDayRaw is bool ad)
+        {
+            isAllDay = ad;
+        }
+
         bool isResponseRequested = false;
         if (row.TryGetValue("responseRequested", out var responseRequestedRaw) && responseRequestedRaw is bool responseRequested)
         {
@@ -204,6 +210,7 @@ internal sealed class MeetingReminderService
             Body = body,
             IsMeeting = isMeeting,
             IsCancelled = isCancelled,
+            IsAllDay = isAllDay,
             IsResponseRequested = isResponseRequested,
             ResponseStatus = responseStatus,
             TeamsJoinUrl = teamsJoinUrl,
@@ -222,7 +229,7 @@ internal sealed class MeetingReminderService
         var todayEnd   = todayStart.AddDays(1);
 
         return allMeetings
-            .Where(x => x.Start >= todayStart && x.Start < todayEnd && !x.IsOutlookSynced)
+            .Where(x => x.Start < todayEnd && x.End > todayStart && !x.IsOutlookSynced)
             .DistinctBy(x => x.Id)
             .OrderBy(x => x.Start)
             .ToList();

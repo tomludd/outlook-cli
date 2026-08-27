@@ -12,6 +12,7 @@ internal sealed class AgendaForm : Form
     private const int ScRestore = 0xF120;
     private const int FadeDurationMs = 100;
     private const int FadeTickIntervalMs = 20;
+    private const int MaxNavigationDays = 7;
 
     // A hidden WS_EX_TOOLWINDOW native window used as the owner of AgendaForm.
     // Owned windows are excluded from Alt+Tab; WS_EX_APPWINDOW on AgendaForm
@@ -55,6 +56,9 @@ internal sealed class AgendaForm : Form
     private Screen? _preferredScreen;
     private System.Windows.Forms.Timer? _fadeTimer;
     private DateTime _fadeStartUtc;
+    private Label _prevButton = null!;
+    private Label _nextButton = null!;
+    private string _nowSepLabelText = "NOW";
 
     public AgendaForm(MeetingReminderService reminderService, MeetingCache cache, SyncUiController syncUi)
     {
@@ -242,10 +246,10 @@ internal sealed class AgendaForm : Form
             BackColor = Color.Transparent
         };
 
-        var prevButton = MaterialIcons.MakeButton(MaterialIcons.ChevronLeft, 0, 4, 28,
+        _prevButton = MaterialIcons.MakeButton(MaterialIcons.ChevronLeft, 0, 4, 28,
             Color.FromArgb(140, 145, 160), Color.FromArgb(30, 34, 44));
-        prevButton.Click += (_, _) => ChangeSelectedDate(-1);
-        navPanel.Controls.Add(prevButton);
+        _prevButton.Click += (_, _) => ChangeSelectedDate(-1);
+        navPanel.Controls.Add(_prevButton);
 
         _dayOffsetLabel = new Label
         {
@@ -258,10 +262,10 @@ internal sealed class AgendaForm : Form
         };
         navPanel.Controls.Add(_dayOffsetLabel);
 
-        var nextButton = MaterialIcons.MakeButton(MaterialIcons.ChevronRight, 72, 4, 28,
+        _nextButton = MaterialIcons.MakeButton(MaterialIcons.ChevronRight, 72, 4, 28,
             Color.FromArgb(140, 145, 160), Color.FromArgb(30, 34, 44));
-        nextButton.Click += (_, _) => ChangeSelectedDate(1);
-        navPanel.Controls.Add(nextButton);
+        _nextButton.Click += (_, _) => ChangeSelectedDate(1);
+        navPanel.Controls.Add(_nextButton);
 
         header.Controls.Add(_dateLabel);
         header.Controls.Add(navPanel);
@@ -317,6 +321,7 @@ internal sealed class AgendaForm : Form
               .Append(m.ResponseStatus).Append('|')
               .Append(m.IsCancelled).Append('|')
               .Append(m.IsMeeting).Append('|')
+              .Append(m.IsAllDay).Append('|')
               .Append(m.IsOverlapping).Append('|')
               .Append(m.TeamsJoinUrl).Append('|')
               .Append(m.Location).Append('|')
@@ -416,9 +421,13 @@ internal sealed class AgendaForm : Form
 
         _lastLoadingMessage = string.Empty;
 
+        var dayStart = _selectedDate.Date;
+        var dayEnd   = dayStart.AddDays(1);
+
         var meetings = _cache.All
-            .Where(m => m.Start.Date == _selectedDate.Date)
+            .Where(m => m.Start < dayEnd && m.End > dayStart) // overlap with selected day
             .OrderBy(m => m.Start)
+            .ThenBy(m => m.IsAllDay ? 0 : 1) // all-day events first on their start day
             .ToList();
 
         var fingerprint = ComputeMeetingsFingerprint(meetings, now);
@@ -505,6 +514,18 @@ internal sealed class AgendaForm : Form
         if (shouldCenterOnShow)
             CenterOnScreen();
 
+        // Keep nav buttons in sync with the current position (handles midnight rollover etc.)
+        var minDate = DateTime.Today.AddDays(-MaxNavigationDays);
+        var maxDate = DateTime.Today.AddDays(MaxNavigationDays);
+        _prevButton.Enabled = _selectedDate > minDate;
+        _nextButton.Enabled = _selectedDate < maxDate;
+        _prevButton.ForeColor = _prevButton.Enabled
+            ? Color.FromArgb(140, 145, 160)
+            : Color.FromArgb(60, 64, 74);
+        _nextButton.ForeColor = _nextButton.Enabled
+            ? Color.FromArgb(140, 145, 160)
+            : Color.FromArgb(60, 64, 74);
+
         _listPanel.ResumeLayout();
         ResumeLayout();
 
@@ -541,7 +562,7 @@ internal sealed class AgendaForm : Form
         {
             var g = e.Graphics;
             int midY = sepH / 2;
-            const string text = "NOW";
+            var text = _nowSepLabelText;
             using var font = new Font("Segoe UI", 7, FontStyle.Bold);
             using var brush = new SolidBrush(_nowSepColor);
             using var pen = new Pen(_nowSepColor, 2);
@@ -597,10 +618,56 @@ internal sealed class AgendaForm : Form
         int rowH   = line2Top + line2H + 4;
 
         // Duration string
-        var duration = meeting.End - meeting.Start;
-        string durationText = duration.TotalHours >= 1
-            ? (duration.Minutes > 0 ? $"{(int)duration.TotalHours}h {duration.Minutes}m" : $"{(int)duration.TotalHours}h")
-            : $"{(int)duration.TotalMinutes} min";
+        string durationText;
+        string timeText;
+        if (meeting.IsAllDay)
+        {
+            // "Day" for a single-day event, "Day +N" for multi-day (N = remaining days after selected date)
+            int remainingDays = (meeting.End.Date - _selectedDate.Date).Days - 1;
+            durationText = remainingDays > 0 ? $"{remainingDays + 1} days" : "all day";
+            timeText = remainingDays > 0 ? $"Day +{remainingDays}" : "Day";
+        }
+        else
+        {
+            var duration = meeting.End - meeting.Start;
+            bool isMultiDay = meeting.End.Date > meeting.Start.Date;
+
+            if (isMultiDay)
+            {
+                bool isStartDay = meeting.Start.Date == _selectedDate.Date;
+                bool isEndDay   = meeting.End.Date   == _selectedDate.Date;
+
+                if (isStartDay)
+                {
+                    // "10:00 +1d" — start time + how many days it continues
+                    int dayDiff = (meeting.End.Date - meeting.Start.Date).Days;
+                    timeText = $"{meeting.Start:HH:mm} +{dayDiff}d";
+                    durationText = duration.TotalHours >= 1
+                        ? (duration.Minutes > 0 ? $"{(int)duration.TotalHours}h {duration.Minutes}m" : $"{(int)duration.TotalHours}h")
+                        : $"{(int)duration.TotalMinutes} min";
+                }
+                else if (isEndDay)
+                {
+                    // "→ 09:00" — arrow + end time on the last day
+                    timeText = $"→ {meeting.End:HH:mm}";
+                    durationText = string.Empty;
+                }
+                else
+                {
+                    // Middle day — same style as all-day
+                    int remainingDays = (meeting.End.Date - _selectedDate.Date).Days - 1;
+                    timeText = remainingDays > 0 ? $"Day +{remainingDays}" : "Day";
+                    durationText = "all day";
+                }
+            }
+            else
+            {
+                durationText = duration.TotalHours >= 1
+                    ? (duration.Minutes > 0 ? $"{(int)duration.TotalHours}h {duration.Minutes}m" : $"{(int)duration.TotalHours}h")
+                    : $"{(int)duration.TotalMinutes} min";
+                timeText = $"{meeting.Start:HH:mm}–{meeting.End:HH:mm}";
+            }
+        }
 
         var rowBg = GetRowBackColor(meeting, now, isPast);
         var row = new Panel { Left = 0, Width = rowWidth, Height = rowH, BackColor = rowBg };
@@ -614,9 +681,9 @@ internal sealed class AgendaForm : Form
         {
             AutoSize = false,
             Left = leftColLeft, Top = line1Top, Width = leftColWidth, Height = line1H,
-            Font = new Font("Segoe UI", 8, FontStyle.Regular),
+            Font = new Font("Segoe UI", 8, meeting.IsAllDay ? FontStyle.Italic : FontStyle.Regular),
             ForeColor = Color.FromArgb(180, 180, 195),
-            Text = $"{meeting.Start:HH:mm}–{meeting.End:HH:mm}",
+            Text = timeText,
             TextAlign = ContentAlignment.MiddleLeft
         };
 
@@ -808,45 +875,74 @@ internal sealed class AgendaForm : Form
         return parts.Count > 0 ? string.Join(" | ", parts) : (meeting.IsMeeting ? "Online" : "No location");
     }
 
+    private static string GetDayRelativeLabel(DateTime selectedDate)
+    {
+        int daysFromToday = (selectedDate.Date - DateTime.Today).Days;
+        return daysFromToday switch
+        {
+            0  => "NOW",
+            1  => "tomorrow",
+            -1 => "1 day ago",
+            > 1 => $"in {daysFromToday} days",
+            < -1 => $"{-daysFromToday} days ago"
+        };
+    }
+
     private void UpdateCountdown()
     {
         var now = DateTime.Now;
-        var next = _cache.All
-            .Where(m => !m.IsCancelled && m.Start.Date == now.Date && m.Start > now)
-            .OrderBy(m => m.Start)
-            .FirstOrDefault();
+        int daysFromToday = (_selectedDate.Date - DateTime.Today).Days;
+
+        // Update the separator label text (left side)
+        var newLabelText = GetDayRelativeLabel(_selectedDate);
+        bool labelChanged = _nowSepLabelText != newLabelText;
+        _nowSepLabelText = newLabelText;
 
         string text;
         Color color;
 
-        if (next is null)
+        if (daysFromToday != 0)
         {
-            text = "no more meetings";
+            // Non-today view — no live countdown
+            text = string.Empty;
             color = Color.FromArgb(80, 85, 100);
         }
         else
         {
-            var diff = next.Start - now;
-            if (diff.TotalMinutes >= 60)
+            var next = _cache.All
+                .Where(m => !m.IsCancelled && m.Start.Date == now.Date && m.Start > now)
+                .OrderBy(m => m.Start)
+                .FirstOrDefault();
+
+            if (next is null)
             {
-                int hours = (int)diff.TotalHours;
-                int minutes = diff.Minutes;
-                text = minutes > 0 ? $"in {hours}h {minutes}m" : $"in {hours}h";
-                color = Color.FromArgb(80, 190, 120); // green
-            }
-            else if (diff.TotalMinutes >= 5)
-            {
-                int minutes = (int)Math.Ceiling(diff.TotalMinutes);
-                text = $"in {minutes} min";
-                color = Color.FromArgb(255, 195, 60); // yellow
+                text = "no more meetings";
+                color = Color.FromArgb(80, 85, 100);
             }
             else
             {
-                int totalSeconds = Math.Max(0, (int)Math.Ceiling(diff.TotalSeconds));
-                int m = totalSeconds / 60;
-                int s = totalSeconds % 60;
-                text = $"starting {m}:{s:D2}";
-                color = Color.FromArgb(255, 85, 85); // red
+                var diff = next.Start - now;
+                if (diff.TotalMinutes >= 60)
+                {
+                    int hours = (int)diff.TotalHours;
+                    int minutes = diff.Minutes;
+                    text = minutes > 0 ? $"in {hours}h {minutes}m" : $"in {hours}h";
+                    color = Color.FromArgb(80, 190, 120); // green
+                }
+                else if (diff.TotalMinutes >= 5)
+                {
+                    int minutes = (int)Math.Ceiling(diff.TotalMinutes);
+                    text = $"in {minutes} min";
+                    color = Color.FromArgb(255, 195, 60); // yellow
+                }
+                else
+                {
+                    int totalSeconds = Math.Max(0, (int)Math.Ceiling(diff.TotalSeconds));
+                    int m = totalSeconds / 60;
+                    int s = totalSeconds % 60;
+                    text = $"starting {m}:{s:D2}";
+                    color = Color.FromArgb(255, 85, 85); // red
+                }
             }
         }
 
@@ -857,15 +953,23 @@ internal sealed class AgendaForm : Form
             _nowSepCountdownLabel.Text = text;
             _nowSepCountdownLabel.ForeColor = color;
         }
-        if (colorChanged)
+        if (colorChanged || labelChanged)
             _nowSepPanel?.Invalidate();
     }
 
     private void ChangeSelectedDate(int dayOffset)
     {
-        _selectedDate = _selectedDate.AddDays(dayOffset);
+        var newDate = _selectedDate.AddDays(dayOffset);
+        var minDate = DateTime.Today.AddDays(-MaxNavigationDays);
+        var maxDate = DateTime.Today.AddDays(MaxNavigationDays);
+
+        // Clamp to ±7 days — never navigate outside this range
+        if (newDate < minDate || newDate > maxDate)
+            return;
+
+        _selectedDate = newDate;
         _dateLabel.Text = _selectedDate.ToString("dddd, d MMMM");
-        
+
         // Update day offset indicator
         int daysFromToday = (_selectedDate.Date - DateTime.Today).Days;
         if (daysFromToday > 0)
@@ -884,7 +988,17 @@ internal sealed class AgendaForm : Form
         {
             _dayOffsetLabel.Visible = false;
         }
-        
+
+        // Enable/disable nav buttons at the limits
+        _prevButton.Enabled = _selectedDate > minDate;
+        _nextButton.Enabled = _selectedDate < maxDate;
+        _prevButton.ForeColor = _prevButton.Enabled
+            ? Color.FromArgb(140, 145, 160)
+            : Color.FromArgb(60, 64, 74);
+        _nextButton.ForeColor = _nextButton.Enabled
+            ? Color.FromArgb(140, 145, 160)
+            : Color.FromArgb(60, 64, 74);
+
         _lastMeetingsFingerprint = string.Empty; // Force refresh
         RefreshAgenda();
     }

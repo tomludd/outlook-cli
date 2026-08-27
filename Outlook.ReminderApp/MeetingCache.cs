@@ -9,8 +9,11 @@ namespace Outlook.ReminderApp;
 /// </summary>
 internal sealed class MeetingCache : IDisposable
 {
-    private static readonly TimeSpan QueryHistoryWindow = TimeSpan.FromHours(8);
-    private static readonly TimeSpan QueryFutureWindow  = TimeSpan.FromHours(8);
+    /// <summary>Number of days before today to fetch (day-aligned).</summary>
+    private const int HistoryDays = 7;
+
+    /// <summary>Number of days after today to fetch (day-aligned, inclusive).</summary>
+    private const int FutureDays = 7;
 
     private readonly MeetingReminderService _service;
     private readonly SynchronizationContext _uiContext;
@@ -19,7 +22,7 @@ internal sealed class MeetingCache : IDisposable
     private int _isRefreshing; // 0 = idle, 1 = in progress; accessed via Interlocked
 
     /// <summary>
-    /// All fetched meetings (including cancelled), covering roughly now ±8 h.
+    /// All fetched meetings (including cancelled), covering today ±7 calendar days.
     /// Refreshed every <paramref name="refreshIntervalSeconds"/> seconds.
     /// </summary>
     public IReadOnlyList<ReminderMeeting> All { get; private set; } = Array.Empty<ReminderMeeting>();
@@ -84,12 +87,14 @@ internal sealed class MeetingCache : IDisposable
             return;
 
         var now = DateTime.Now;
+        var from = now.Date.AddDays(-HistoryDays);
+        var to   = now.Date.AddDays(FutureDays + 1); // +1 to include the full last day
         Task.Run(() =>
         {
             IReadOnlyList<ReminderMeeting>? result = null;
             try
             {
-                result = _service.FetchAll(now.Subtract(QueryHistoryWindow), now.Add(QueryFutureWindow));
+                result = _service.FetchAll(from, to);
             }
             catch (Exception ex)
             {

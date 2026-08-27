@@ -10,6 +10,7 @@ internal sealed class ReminderMeeting
     public string Body { get; init; } = string.Empty;
     public bool IsMeeting { get; init; }
     public bool IsCancelled { get; init; }
+    public bool IsAllDay { get; init; }
     public bool IsResponseRequested { get; init; }
     public string ResponseStatus { get; init; } = "Unknown";
     public string? TeamsJoinUrl { get; init; }
