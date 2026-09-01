@@ -13,6 +13,7 @@ internal sealed class AgendaForm : Form
     private const int FadeDurationMs = 100;
     private const int FadeTickIntervalMs = 20;
     private const int MaxNavigationDays = 7;
+    private static readonly TimeSpan StaleSelectionResetThreshold = TimeSpan.FromMinutes(5);
 
     // A hidden WS_EX_TOOLWINDOW native window used as the owner of AgendaForm.
     // Owned windows are excluded from Alt+Tab; WS_EX_APPWINDOW on AgendaForm
@@ -59,6 +60,7 @@ internal sealed class AgendaForm : Form
     private Label _prevButton = null!;
     private Label _nextButton = null!;
     private string _nowSepLabelText = "NOW";
+    private DateTime? _minimizedAtUtc;
 
     public AgendaForm(MeetingReminderService reminderService, MeetingCache cache, SyncUiController syncUi)
     {
@@ -144,6 +146,7 @@ internal sealed class AgendaForm : Form
                 WindowState = FormWindowState.Minimized;
                 _needsRefresh = true;
                 _needsInitialCenter = true;
+                _minimizedAtUtc = DateTime.UtcNow;
             });
         };
 
@@ -172,6 +175,15 @@ internal sealed class AgendaForm : Form
             // _preferredScreen was left over from the last deactivate.
             _preferredScreen = Screen.FromPoint(Cursor.Position);
             _needsInitialCenter = true;
+
+            if (_minimizedAtUtc is { } minimizedAt &&
+                DateTime.UtcNow - minimizedAt >= StaleSelectionResetThreshold &&
+                _selectedDate.Date != DateTime.Today)
+            {
+                ApplySelectedDate(DateTime.Today);
+            }
+            _minimizedAtUtc = null;
+
             Opacity = 0;
             base.WndProc(ref m); // triggers WM_SIZE → SizeChanged → RefreshAgenda
             StartFadeIn();
@@ -967,6 +979,14 @@ internal sealed class AgendaForm : Form
         // Clamp to ±7 days — never navigate outside this range
         if (newDate < minDate || newDate > maxDate)
             return;
+
+        ApplySelectedDate(newDate);
+    }
+
+    private void ApplySelectedDate(DateTime newDate)
+    {
+        var minDate = DateTime.Today.AddDays(-MaxNavigationDays);
+        var maxDate = DateTime.Today.AddDays(MaxNavigationDays);
 
         _selectedDate = newDate;
         _dateLabel.Text = _selectedDate.ToString("dddd, d MMMM");
