@@ -425,6 +425,7 @@ internal sealed class AgendaForm : Form
         var dayEnd   = dayStart.AddDays(1);
 
         var meetings = _cache.All
+            .Where(m => !m.IsOutlookSynced) // hide busy-block placeholders created by outlook-sync
             .Where(m => m.Start < dayEnd && m.End > dayStart) // overlap with selected day
             .OrderBy(m => m.Start)
             .ThenBy(m => m.IsAllDay ? 0 : 1) // all-day events first on their start day
@@ -783,7 +784,7 @@ internal sealed class AgendaForm : Form
                 Color.FromArgb(80, 190, 120), rowBg);
             acceptBtn.Click += async (_, _) =>
             {
-                try { await _reminderService.RespondToMeetingAsync(meeting.Id, true); }
+                try { await _reminderService.RespondToMeetingAsync(meeting.Id, meeting.Start, true); }
                 catch { }
                 RefreshAgenda();
             };
@@ -793,7 +794,7 @@ internal sealed class AgendaForm : Form
                 Color.FromArgb(210, 80, 90), rowBg);
             declineBtn.Click += async (_, _) =>
             {
-                try { await _reminderService.RespondToMeetingAsync(meeting.Id, false); }
+                try { await _reminderService.RespondToMeetingAsync(meeting.Id, meeting.Start, false); }
                 catch { }
                 RefreshAgenda();
             };
@@ -816,12 +817,12 @@ internal sealed class AgendaForm : Form
         _activeDetailForm?.Close();
         _activeDetailForm = null;
 
-        var details = await _reminderService.GetMeetingDetailsAsync(meeting.Id)
+        var details = await _reminderService.GetMeetingDetailsAsync(meeting.Id, meeting.Start)
             ?? new MeetingDetails(meeting.DisplaySubject, meeting.Start, meeting.End,
                                   string.Empty, meeting.Location, meeting.Body, string.Empty, []);
 
         var anchorPoint = new Point(Right, Top);
-        var flyout = new MeetingDetailForm(details, anchorPoint, async () => await _reminderService.OpenInOutlookAsync(meeting.Id));
+        var flyout = new MeetingDetailForm(details, anchorPoint, async () => await _reminderService.OpenInOutlookAsync(meeting.Id, meeting.Start));
         flyout.Tag = meeting.Id;
         flyout.FormClosed += (_, _) => { if (_activeDetailForm == flyout) _activeDetailForm = null; };
 
@@ -910,7 +911,7 @@ internal sealed class AgendaForm : Form
         else
         {
             var next = _cache.All
-                .Where(m => !m.IsCancelled && m.Start.Date == now.Date && m.Start > now)
+                .Where(m => !m.IsCancelled && !m.IsOutlookSynced && m.Start.Date == now.Date && m.Start > now)
                 .OrderBy(m => m.Start)
                 .FirstOrDefault();
 

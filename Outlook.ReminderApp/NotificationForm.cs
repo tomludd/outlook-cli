@@ -351,7 +351,7 @@ internal sealed class NotificationForm : Form
                 Color.FromArgb(80, 190, 120), rowBg);
             acceptBtn.Click += async (_, _) =>
             {
-                try { await _reminderService.RespondToMeetingAsync(meeting.Id, true); } catch { }
+                try { await _reminderService.RespondToMeetingAsync(meeting.Id, meeting.Start, true); } catch { }
                 var n = DateTime.Now; UpdateFromCache(n); RebuildView(n);
             };
             row.Controls.Add(acceptBtn);
@@ -360,7 +360,7 @@ internal sealed class NotificationForm : Form
                 Color.FromArgb(210, 80, 90), rowBg);
             declineBtn.Click += async (_, _) =>
             {
-                try { await _reminderService.RespondToMeetingAsync(meeting.Id, false); } catch { }
+                try { await _reminderService.RespondToMeetingAsync(meeting.Id, meeting.Start, false); } catch { }
                 var n = DateTime.Now; UpdateFromCache(n); RebuildView(n);
             };
             row.Controls.Add(declineBtn);

@@ -15,11 +15,19 @@ internal sealed class MeetingCache : IDisposable
     /// <summary>Number of days after today to fetch (day-aligned, inclusive).</summary>
     private const int FutureDays = 7;
 
+    /// <summary>
+    /// How often to force a fresh Outlook COM connection. Works around a MAPI quirk where a
+    /// long-lived session's recurring-items enumeration silently degrades to a single occurrence —
+    /// see <see cref="OutlookCalendarService.ResetConnection"/>.
+    /// </summary>
+    private static readonly TimeSpan ConnectionResetInterval = TimeSpan.FromMinutes(5);
+
     private readonly MeetingReminderService _service;
     private readonly SynchronizationContext _uiContext;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly int _refreshIntervalMs;
     private int _isRefreshing; // 0 = idle, 1 = in progress; accessed via Interlocked
+    private DateTime _lastConnectionReset = DateTime.UtcNow;
 
     /// <summary>
     /// All fetched meetings (including cancelled), covering today ±7 calendar days.
@@ -94,6 +102,11 @@ internal sealed class MeetingCache : IDisposable
             IReadOnlyList<ReminderMeeting>? result = null;
             try
             {
+                if (DateTime.UtcNow - _lastConnectionReset >= ConnectionResetInterval)
+                {
+                    _service.ResetOutlookConnection();
+                    _lastConnectionReset = DateTime.UtcNow;
+                }
                 result = _service.FetchAll(from, to);
             }
             catch (Exception ex)

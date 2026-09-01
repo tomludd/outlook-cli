@@ -230,10 +230,17 @@ internal sealed class MeetingReminderService
 
         return allMeetings
             .Where(x => x.Start < todayEnd && x.End > todayStart && !x.IsOutlookSynced)
-            .DistinctBy(x => x.Id)
+            .DistinctBy(x => (x.Id, x.Start))
             .OrderBy(x => x.Start)
             .ToList();
     }
+
+    /// <summary>
+    /// Forces the next Outlook COM call to reconnect from scratch. See
+    /// <see cref="OutlookCalendarService.ResetConnection"/> for why <see cref="MeetingCache"/>
+    /// calls this periodically.
+    /// </summary>
+    public void ResetOutlookConnection() => _calendarService.ResetConnection();
 
     /// <summary>
     /// Fetches all meetings (including cancelled) from Outlook COM for the given time range.
@@ -247,7 +254,9 @@ internal sealed class MeetingReminderService
             .Select(ToReminderMeeting)
             .Where(x => x is not null)
             .Cast<ReminderMeeting>()
-            .DistinctBy(x => x.Id)
+            // Recurring occurrences all share their series' EntryID, so Id alone isn't unique —
+            // include Start or every occurrence after the first collapses into one.
+            .DistinctBy(x => (x.Id, x.Start))
             .GroupBy(x => (x.Subject, x.Start, x.End))
             .Select(g => g
                 .OrderBy(x => OrganizerDomainMatchScore(x))
@@ -262,18 +271,18 @@ internal sealed class MeetingReminderService
     /// The COM call runs on the persistent STA worker via ComTimeout.Run; Task.Run ensures the
     /// blocking wait happens off the UI thread.
     /// </summary>
-    public Task RespondToMeetingAsync(string meetingId, bool accept)
-        => Task.Run(() => _calendarService.RespondToMeeting(meetingId, accept ? 3 : 4));
+    public Task RespondToMeetingAsync(string meetingId, DateTime occurrenceStart, bool accept)
+        => Task.Run(() => _calendarService.RespondToMeeting(meetingId, accept ? 3 : 4, occurrenceStart));
 
     /// <summary>
     /// Fetches meeting details asynchronously so the UI thread is never blocked by a slow Outlook.
     /// </summary>
-    public Task<MeetingDetails?> GetMeetingDetailsAsync(string meetingId)
+    public Task<MeetingDetails?> GetMeetingDetailsAsync(string meetingId, DateTime occurrenceStart)
         => Task.Run(() =>
         {
             try
             {
-                var dict = _calendarService.GetEvent(meetingId);
+                var dict = _calendarService.GetEvent(meetingId, occurrenceStart);
 
                 var subject  = dict.TryGetValue("subject",  out var s)  ? s?.ToString()  ?? string.Empty : string.Empty;
                 var organizer = dict.TryGetValue("organizer", out var o)  ? o?.ToString()  ?? string.Empty : string.Empty;
@@ -310,10 +319,10 @@ internal sealed class MeetingReminderService
     /// <summary>
     /// Opens the meeting item in Outlook asynchronously so the UI thread is never blocked.
     /// </summary>
-    public Task OpenInOutlookAsync(string meetingId)
+    public Task OpenInOutlookAsync(string meetingId, DateTime occurrenceStart)
         => Task.Run(() =>
         {
-            try { _calendarService.OpenItem(meetingId); }
+            try { _calendarService.OpenItem(meetingId, occurrenceStart); }
             catch { }
         });
 

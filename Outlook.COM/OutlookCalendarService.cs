@@ -110,6 +110,25 @@ public class OutlookCalendarService
     public List<Dictionary<string, object?>> ListEvents(DateTime startDate, DateTime endDate, string? account)
         => OutlookComInvoker.Run(() => ListEventsCore(startDate, endDate, account));
 
+    /// <summary>
+    /// Drops the shared cached <c>Outlook.Application</c> RCW so the next COM call reconnects
+    /// from scratch. Long-lived callers (e.g. a background poller) that repeatedly restrict a
+    /// recurring-items collection with <c>IncludeRecurrences</c> over the same session can hit an
+    /// Outlook/MAPI quirk where recurrence expansion silently degrades to a single occurrence;
+    /// periodically reconnecting works around it the same way a short-lived process naturally does.
+    /// </summary>
+    public void ResetConnection() => OutlookComHost.Reset();
+
+    /// <summary>
+    /// True for the same busy/stale-connection HRESULTs that <see cref="OutlookComInvoker"/> retries on.
+    /// Distinguishes "Outlook rejected this call" from "this store genuinely has no calendar folder".
+    /// </summary>
+    private static bool IsTransientComFailure(COMException ex) =>
+        ex.HResult == RpcHResult.ServerUnavailable
+        || ex.HResult == RpcHResult.ServerDisconnected
+        || ex.HResult == RpcHResult.CallCanceled
+        || ex.HResult == RpcHResult.CallRejected;
+
     private List<Dictionary<string, object?>> ListEventsCore(DateTime startDate, DateTime endDate, string? account)
     {
         var events = new List<Dictionary<string, object?>>();
@@ -128,6 +147,13 @@ public class OutlookCalendarService
                         store = stores.Item(i);
                         var smtpAddress = GetSmtpAddressForStore(ns, store);
                         CollectEvents(store.GetDefaultFolder(OlFolderCalendar), startDate, endDate, events, smtpAddress);
+                    }
+                    catch (COMException ex) when (IsTransientComFailure(ex))
+                    {
+                        // Outlook was busy/stale for this one store's call — let it bubble up so
+                        // OutlookComInvoker can reset/retry the whole fetch, instead of silently
+                        // returning a partial result that's missing this store's events.
+                        throw;
                     }
                     catch { /* Store has no calendar folder */ }
                     finally { OutlookComHost.Release(store); }
@@ -700,16 +726,55 @@ public class OutlookCalendarService
         catch { return string.Empty; }
     }
 
-    public Dictionary<string, object?> GetEvent(string eventId)
-        => OutlookComInvoker.Run(() => GetEventCore(eventId));
+    /// <summary>
+    /// Resolves an event ID to the appointment item to act on. Every occurrence of a recurring
+    /// series shares the series' EntryID (see <c>ListEventsCore</c>/<c>AppointmentToDict</c>), so
+    /// <c>GetItemFromID</c> alone always returns the recurring master — acting on it directly (e.g.
+    /// responding, or editing) would apply to the whole series instead of one occurrence. When
+    /// <paramref name="occurrenceStart"/> is supplied and the resolved item is in fact recurring,
+    /// this looks up the specific occurrence on that date via the recurrence pattern instead.
+    /// </summary>
+    private static dynamic ResolveOccurrence(dynamic ns, string eventId, DateTime? occurrenceStart)
+    {
+        dynamic item = ns.GetItemFromID(eventId);
 
-    private Dictionary<string, object?> GetEventCore(string eventId)
+        if (occurrenceStart is null)
+            return item;
+
+        bool isRecurring;
+        try { isRecurring = (bool)item.IsRecurring; }
+        catch { isRecurring = false; }
+
+        if (!isRecurring)
+            return item;
+
+        dynamic pattern = item.GetRecurrencePattern();
+        try
+        {
+            // GetOccurrence matches by date only, ignoring time-of-day.
+            dynamic occurrence = pattern.GetOccurrence(occurrenceStart.Value.Date);
+            Marshal.ReleaseComObject(item);
+            return occurrence;
+        }
+        catch
+        {
+            // No occurrence on that date (e.g. it was deleted or moved) — fall back to the
+            // series master rather than failing the whole operation.
+            return item;
+        }
+        finally { OutlookComHost.Release(pattern); }
+    }
+
+    public Dictionary<string, object?> GetEvent(string eventId, DateTime? occurrenceStart = null)
+        => OutlookComInvoker.Run(() => GetEventCore(eventId, occurrenceStart));
+
+    private Dictionary<string, object?> GetEventCore(string eventId, DateTime? occurrenceStart)
     {
         var ns = GetNamespace();
         dynamic appointment;
         try
         {
-            appointment = ns.GetItemFromID(eventId);
+            appointment = ResolveOccurrence(ns, eventId, occurrenceStart);
         }
         catch
         {
@@ -729,15 +794,15 @@ public class OutlookCalendarService
         }
     }
 
-    public void OpenItem(string eventId)
-        => OutlookComInvoker.Run(() => OpenItemCore(eventId));
+    public void OpenItem(string eventId, DateTime? occurrenceStart = null)
+        => OutlookComInvoker.Run(() => OpenItemCore(eventId, occurrenceStart));
 
-    private void OpenItemCore(string eventId)
+    private void OpenItemCore(string eventId, DateTime? occurrenceStart)
     {
         var ns = GetNamespace();
         try
         {
-            dynamic appointment = ns.GetItemFromID(eventId);
+            dynamic appointment = ResolveOccurrence(ns, eventId, occurrenceStart);
             try
             {
                 appointment.Display(false);
@@ -752,16 +817,16 @@ public class OutlookCalendarService
         finally { OutlookComHost.Release(ns); }
     }
 
-    public void RespondToMeeting(string eventId, int responseType)
-        => OutlookComInvoker.Run(() => RespondToMeetingCore(eventId, responseType));
+    public void RespondToMeeting(string eventId, int responseType, DateTime? occurrenceStart = null)
+        => OutlookComInvoker.Run(() => RespondToMeetingCore(eventId, responseType, occurrenceStart));
 
-    private void RespondToMeetingCore(string eventId, int responseType)
+    private void RespondToMeetingCore(string eventId, int responseType, DateTime? occurrenceStart)
     {
         var ns = GetNamespace();
         dynamic appointment;
         try
         {
-            appointment = ns.GetItemFromID(eventId);
+            appointment = ResolveOccurrence(ns, eventId, occurrenceStart);
         }
         catch
         {
